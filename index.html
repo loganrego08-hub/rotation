@@ -3,40 +3,62 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#171717">
 <title>Rotation</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="bar">
-  <a href="#/" class="wordmark" aria-label="Rotation home">Rotation</a>
-  <div class="search">
-    <input id="q" type="search" placeholder="Look up an album or artist" autocomplete="off" aria-label="Search albums">
-    <div id="results" class="results" hidden></div>
+<a class="skip" href="#view">Skip to content</a>
+
+<header class="nav" id="nav">
+  <div class="nav__inner">
+    <a href="#/" class="wordmark" aria-label="Rotation home">Rotation</a>
+    <nav class="nav__links" aria-label="Main">
+      <a href="#/" data-nav="home">Home</a>
+      <a href="#/genres" data-nav="genres">Genres</a>
+      <a href="#/me" data-nav="me">Profile</a>
+    </nav>
+    <div class="search" role="search">
+      <svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" class="input input--search" type="search" placeholder="Search albums and artists" autocomplete="off" aria-label="Search albums and artists" aria-controls="results" aria-expanded="false">
+      <div id="results" class="menu menu--search" role="listbox" hidden></div>
+    </div>
+    <div id="account" class="nav__account"></div>
   </div>
-  <div id="account" class="account"></div>
 </header>
 
-<main id="view"></main>
+<main id="view" tabindex="-1"></main>
 
-<dialog id="authDialog">
-  <form id="authForm" method="dialog">
-    <h2 id="authTitle">Sign in</h2>
-    <p class="muted">Your ratings are saved to your account and count toward each album's average.</p>
-    <label>Email<input id="authEmail" type="email" required autocomplete="email"></label>
-    <label>Password<input id="authPass" type="password" required minlength="6" autocomplete="current-password"></label>
-    <p id="authError" class="error" hidden></p>
-    <div class="row">
-      <button type="submit" class="btn primary" id="authSubmit">Sign in</button>
-      <button type="button" class="btn ghost" id="authToggle">Create an account instead</button>
+<dialog id="authDialog" class="dialog" aria-labelledby="authTitle">
+  <form id="authForm" method="dialog" class="dialog__body">
+    <div class="dialog__head">
+      <h2 id="authTitle" class="dialog__title">Sign in</h2>
+      <button type="button" class="icon-btn" id="authClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
     </div>
-    <button type="button" class="close" id="authClose" aria-label="Close">×</button>
+    <p class="text-2">Your scores save to your account and count toward each album's community average.</p>
+    <label class="field">
+      <span class="field__label">Email</span>
+      <input id="authEmail" class="input" type="email" required autocomplete="email">
+    </label>
+    <label class="field">
+      <span class="field__label">Password</span>
+      <input id="authPass" class="input" type="password" required minlength="6" autocomplete="current-password">
+      <span class="field__hint">At least 6 characters</span>
+    </label>
+    <p id="authError" class="alert alert--error" role="alert" hidden></p>
+    <div class="dialog__actions">
+      <button type="button" class="btn btn--ghost" id="authToggle">Create an account instead</button>
+      <button type="submit" class="btn btn--primary" id="authSubmit">Sign in</button>
+    </div>
   </form>
 </dialog>
 
-<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
