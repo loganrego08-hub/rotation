@@ -536,3 +536,5 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 
 .genre-card, .album-card, .sk-card { min-width: 0; }
 .genre-card__covers { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.genre-card, .album-card, .sk-card, .artist-card { grid-template-columns: minmax(0, 1fr); }
