@@ -1,12 +1,13 @@
 :root {
-  --sleeve: #E9ECF0;
-  --card: #F7F8FA;
-  --ink: #1B2333;
-  --muted: #677086;
-  --line: #D2D7DF;
-  --cobalt: #3346D3;
-  --cobalt-soft: #DCE0FA;
-  --gold: #E9A92A;
+  --sleeve: #EFE5CF;
+  --card: #F8F1E1;
+  --ink: #2A2017;
+  --muted: #7B6A53;
+  --line: #DCCDAE;
+  --cobalt: #33408E;
+  --cobalt-soft: #E3DCC8;
+  --gold: #C98A1A;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .25 0 0 0 0 .12 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   --display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
   --body: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
   box-sizing: border-box;
@@ -16,13 +17,14 @@
 *, *::before, *::after { box-sizing: inherit; }
 @media (prefers-color-scheme: dark) {
   :root {
-    --sleeve: #151A24; --card: #1E2431; --ink: #EEF1F6; --muted: #98A1B5;
-    --line: #2E3647; --cobalt: #7D8CFF; --cobalt-soft: #283063; --gold: #F2BC4E;
+    --sleeve: #1E1912; --card: #29221A; --ink: #F2E8D5; --muted: #AD9C81;
+    --line: #3D3326; --cobalt: #A3AEF0; --cobalt-soft: #3A3226; --gold: #E8B04A;
   }
 }
 html, body { margin: 0; }
 body {
-  background: var(--sleeve); color: var(--ink);
+  background: var(--grain), radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--card) 70%, transparent), transparent 70%), var(--sleeve);
+  background-attachment: fixed; color: var(--ink);
   font: 16px/1.5 var(--body); -webkit-font-smoothing: antialiased;
   min-height: 100vh; overflow-x: hidden;
 }
@@ -51,7 +53,7 @@ button, input, textarea { font: inherit; color: inherit; }
   position: absolute; top: calc(100% + 8px); left: 0; right: 0;
   background: var(--card); border: 1px solid var(--line); border-radius: 16px;
   max-height: 70vh; overflow-y: auto; padding: 6px;
-  box-shadow: 0 24px 50px -24px rgba(15, 20, 32, .55);
+  box-shadow: 0 24px 50px -24px rgba(52, 36, 18, .55);
 }
 .result { display: grid; grid-template-columns: 48px 1fr; gap: 12px; align-items: center; padding: 8px; border-radius: 10px; text-decoration: none; }
 .result:hover, .result:focus-visible { background: var(--cobalt-soft); }
@@ -86,7 +88,7 @@ main { padding: clamp(24px, 5vw, 56px) clamp(16px, 4vw, 40px) 96px; max-width: 1
 .grid { display: grid; gap: 30px 22px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 
 .card { text-decoration: none; display: block; position: relative; min-width: 0; }
-.card .cover { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: var(--line); box-shadow: 0 14px 28px -18px rgba(15, 20, 32, .6); transition: transform .2s ease; }
+.card .cover { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: var(--line); box-shadow: 0 14px 28px -18px rgba(52, 36, 18, .6); transition: transform .2s ease; }
 .card:hover .cover { transform: translateY(-3px); }
 .card .cover img, .card .cover .ph { width: 100%; height: 100%; object-fit: cover; }
 .cover .ph, .art .ph { display: grid; place-items: center; color: var(--muted); font-size: 13px; }
@@ -179,7 +181,7 @@ main { padding: clamp(24px, 5vw, 56px) clamp(16px, 4vw, 40px) 96px; max-width: 1
 }
 .album { display: grid; grid-template-columns: minmax(260px, 440px) 1fr; gap: clamp(28px, 5vw, 64px); align-items: start; }
 .album .art { position: sticky; top: 96px; }
-.album .art img, .album .art .ph { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--line); box-shadow: 0 40px 70px -36px rgba(10, 12, 20, .75); }
+.album .art img, .album .art .ph { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--line); box-shadow: 0 40px 70px -36px rgba(52, 36, 18, .75); }
 .album h1 { font: 800 clamp(36px, 5.5vw, 64px)/0.98 var(--display); letter-spacing: -0.04em; margin: 0 0 12px; }
 .album .artist { font-size: 21px; font-weight: 600; margin: 0; }
 .album .date { color: var(--muted); margin: 4px 0 0; }
@@ -211,7 +213,7 @@ textarea { width: 100%; min-height: 140px; resize: vertical; padding: 14px 16px;
 
 /* Dialog */
 dialog { border: 0; border-radius: 20px; padding: 0; background: var(--card); color: var(--ink); width: min(420px, 92vw); }
-dialog::backdrop { background: rgba(21, 26, 36, .55); }
+dialog::backdrop { background: rgba(42, 32, 23, .5); }
 dialog form { padding: 28px; position: relative; display: grid; gap: 14px; }
 dialog h2 { font: 800 28px var(--display); margin: 0; letter-spacing: -0.02em; }
 dialog p { margin: 0; }
