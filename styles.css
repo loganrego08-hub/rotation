@@ -241,3 +241,4 @@ dialog .close { position: absolute; top: 14px; right: 14px; border: 0; backgroun
   .genres { grid-template-columns: repeat(2, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::after { transition: none !important; animation: none !important; } }
+.card .why { font-size: 13px; color: var(--cobalt); margin-top: 3px; font-weight: 600; }

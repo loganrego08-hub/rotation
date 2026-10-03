@@ -197,7 +197,7 @@ function card(it, { ranked = false, badge } = {}) {
   return `<a class="card${ranked ? " ranked" : ""}" href="${itemHref(it)}">
     ${ranked ? `<span class="rank" aria-hidden="true">${it.rank}</span>` : ""}
     <div class="cover">${img(it.art, `${it.title} cover`)}${badge != null ? `<span class="badge">${badge}</span>` : ""}</div>
-    <h3>${ranked ? `<span class="sr">#${it.rank} </span>` : ""}${esc(it.title)}</h3><p>${esc(it.sub || it.artist)}</p></a>`;
+    <h3>${ranked ? `<span class="sr">#${it.rank} </span>` : ""}${esc(it.title)}</h3><p>${esc(it.sub || it.artist)}</p>${it.why ? `<p class="why">${esc(it.why)}</p>` : ""}</a>`;
 }
 const genreTile = (g) => `<a class="genre" href="#/genre/${g.slug}" style="--g:${g.color}"><span>${esc(g.name)}</span></a>`;
 function failNote(el, msg) { el.classList.add("note"); el.innerHTML = `<p class="muted">${msg}</p>`; }
@@ -271,41 +271,126 @@ async function loadMine() {
   el.innerHTML = data.map((r) => card({ id: r.album.id, title: r.album.title, artist: r.album.artist, art: r.album.cover_url }, { badge: r.score })).join("");
 }
 
+/* ---------- Recommendations ----------
+   Seeds are the albums you rated 7+. For each seed we look up its artists and
+   its fine-grained genres on MusicBrainz, then mix three kinds of picks:
+   more albums by artists you rate highly, well-tagged albums in the specific
+   genres you like, and current chart albums in the broader matching genres. */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let mbLast = 0;
+async function mbSlow(url) {
+  // MusicBrainz allows about one request per second
+  const key = "mb:" + url;
+  try { const hit = sessionStorage.getItem(key); if (hit) return JSON.parse(hit); } catch {}
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const wait = mbLast + 1100 - Date.now();
+    if (wait > 0) await sleep(wait);
+    mbLast = Date.now();
+    const r = await fetch(url);
+    if (r.status === 503) { await sleep(1500); continue; }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    try { sessionStorage.setItem(key, JSON.stringify(j)); } catch {}
+    return j;
+  }
+  throw new Error("MusicBrainz is busy");
+}
+const tagNames = (x) => [...(x.genres || []), ...(x.tags || [])]
+  .filter((t) => t.count > 0).sort((a, b) => b.count - a.count).map((t) => t.name.toLowerCase());
+const isStudioAlbum = (rg) => (rg["primary-type"] || "Album") === "Album" && !(rg["secondary-types"] || []).length;
+
+async function buildRecs(ratings) {
+  const ratedIds = new Set(ratings.map((r) => r.album?.id));
+  const ratedKeys = new Set(ratings.map((r) => norm(r.album?.title) + "|" + norm(r.album?.artist)));
+  const seeds = ratings.filter((r) => r.album && r.score >= 7).slice(0, 6);
+  if (!seeds.length) seeds.push(...ratings.filter((r) => r.album).slice(0, 3));
+
+  const artistWeight = new Map(); // mbid -> {name, w}
+  const genreWeight = new Map();  // genre -> weight
+  for (const r of seeds) {
+    let rg;
+    try { rg = await mbSlow(`${MB}/release-group/${r.album.id}?inc=artist-credits+genres+tags&fmt=json`); } catch { continue; }
+    (rg["artist-credit"] || []).slice(0, 2).forEach((c) => {
+      const a = artistWeight.get(c.artist.id) || { name: c.artist.name, w: 0 };
+      a.w += r.score; artistWeight.set(c.artist.id, a);
+    });
+    let tags = tagNames(rg);
+    if (tags.length < 2 && rg["artist-credit"]?.[0]) {
+      try { tags = tags.concat(tagNames(await mbSlow(`${MB}/artist/${rg["artist-credit"][0].artist.id}?inc=genres+tags&fmt=json`))); } catch {}
+    }
+    tags.slice(0, 5).forEach((t, i) => genreWeight.set(t, (genreWeight.get(t) || 0) + r.score * (5 - i)));
+    // Fill in genres for albums saved before genres were tracked
+    const g = (rg.genres || []).sort((a, b) => b.count - a.count).slice(0, 4).map((x) => x.name);
+    if (g.length && !(r.album.genres || []).length) sb.from("albums").update({ genres: g }).eq("id", r.album.id).then(() => {});
+  }
+
+  const byArtist = [], byTag = [], byChart = [];
+  const topArtists = [...artistWeight.entries()].sort((a, b) => b[1].w - a[1].w).slice(0, 3);
+  for (const [mbid, a] of topArtists) {
+    try {
+      const j = await mbSlow(`${MB}/release-group?artist=${mbid}&type=album&limit=50&fmt=json`);
+      (j["release-groups"] || []).filter(isStudioAlbum)
+        .sort((x, y) => (y["first-release-date"] || "").localeCompare(x["first-release-date"] || ""))
+        .slice(0, 4)
+        .forEach((x) => byArtist.push({ id: x.id, title: x.title, artist: a.name, art: coverUrl(x.id, 250), why: `More from ${a.name}` }));
+    } catch {}
+  }
+  const generic = new Set(["rock", "pop", "electronic", "hip hop", "rap", "jazz", "soul", "alternative", "indie", "american", "british", "english"]);
+  const topTags = [...genreWeight.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t)
+    .sort((a, b) => generic.has(a) - generic.has(b)).slice(0, 3);
+  for (const t of topTags) {
+    try {
+      const q = `tag:"${t.replace(/["\\]/g, "")}" AND primarytype:album AND status:official`;
+      const j = await mbSlow(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=25`);
+      (j["release-groups"] || []).filter(isStudioAlbum).slice(0, 8)
+        .forEach((x) => byTag.push({ id: x.id, title: x.title, artist: artistName(x["artist-credit"]), art: coverUrl(x.id, 250), why: `Because you like ${t}` }));
+    } catch {}
+  }
+  const broad = [...new Set(topTags.concat([...genreWeight.keys()]).map(matchGenre).filter(Boolean))].slice(0, 2);
+  for (const g of broad) {
+    try { (await itunesChart(g.apple, 25)).forEach((x) => byChart.push({ ...x, why: `Popular in ${g.name.toLowerCase()}` })); } catch {}
+  }
+
+  const out = [], seen = new Set();
+  const take = (it) => {
+    if (!it) return;
+    const k = norm(it.title) + "|" + norm(it.artist);
+    if ((it.id && ratedIds.has(it.id)) || ratedKeys.has(k) || seen.has(k)) return;
+    seen.add(k); out.push(it);
+  };
+  const max = Math.max(byArtist.length, byTag.length, byChart.length);
+  for (let i = 0; i < max && out.length < 18; i++) { take(byArtist[i]); take(byTag[i]); take(byChart[i]); }
+  return { items: out, artists: topArtists.map(([, a]) => a.name), tags: topTags };
+}
+
 async function loadRecs() {
   if (!sb || !user) return;
-  const { data } = await sb.from("ratings").select("score, album:albums(title,artist,genres)").order("score", { ascending: false });
   const shelf = $("#recShelf");
   if (!shelf) return;
   shelf.hidden = false;
-  const rated = new Set((data || []).map((r) => norm(r.album?.title) + "|" + norm(r.album?.artist)));
-  const weight = {};
-  (data || []).filter((r) => r.score >= 7).forEach((r) => (r.album?.genres || []).forEach((name) => {
-    const g = matchGenre(name);
-    if (g) weight[g.slug] = (weight[g.slug] || 0) + r.score;
-  }));
-  const picks = Object.entries(weight).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([s]) => GENRES.find((g) => g.slug === s));
-  let items = [], why;
-  try {
-    if (picks.length) {
-      const lists = await Promise.all(picks.map((g) => genreChart(g).catch(() => [])));
-      const max = Math.max(...lists.map((l) => l.length));
-      for (let i = 0; i < max; i++) lists.forEach((l) => l[i] && items.push(l[i]));
-      why = `Because you rate ${picks.map((g) => g.name.toLowerCase()).join(" and ")} highly`;
-    } else {
-      items = await topChart();
-      why = data?.length ? "Popular albums you haven't rated yet" : "Rate a few albums and these will tune to your taste";
-    }
-  } catch { items = []; }
-  const seen = new Set();
-  items = items.filter((it) => {
-    const k = norm(it.title) + "|" + norm(it.artist);
-    if (rated.has(k) || seen.has(k)) return false;
-    seen.add(k); return true;
-  }).slice(0, 16);
-  $("#recWhy").textContent = why || "";
   const el = $("#recs");
-  if (!items.length) return failNote(el, "Recommendations couldn't load right now.");
-  el.innerHTML = items.map((it) => card(it)).join("");
+  const { data } = await sb.from("ratings").select("score, updated_at, album:albums(id,title,artist,genres)").order("score", { ascending: false }).order("updated_at", { ascending: false });
+  const ratings = data || [];
+  if (!ratings.length) {
+    $("#recWhy").textContent = "Rate a few albums and this fills with picks tuned to your taste";
+    try { el.innerHTML = (await topChart()).slice(0, 12).map((it) => card(it)).join(""); } catch { failNote(el, "Recommendations couldn't load right now."); }
+    return;
+  }
+  $("#recWhy").textContent = "Tuning picks to what you've rated highly…";
+  const sig = user.id + ":" + ratings.map((r) => r.album?.id + r.score).join(",");
+  let recs;
+  try { recs = JSON.parse(sessionStorage.getItem("recs:" + sig) || "null"); } catch {}
+  if (!recs) {
+    try { recs = await buildRecs(ratings); } catch { recs = { items: [] }; }
+    try { sessionStorage.setItem("recs:" + sig, JSON.stringify(recs)); } catch {}
+  }
+  if (!$("#recs")) return; // navigated away
+  const bits = [];
+  if (recs.artists?.length) bits.push(recs.artists.slice(0, 2).join(" and "));
+  if (recs.tags?.length) bits.push(recs.tags.slice(0, 2).join(" and "));
+  $("#recWhy").textContent = bits.length ? `Based on your love of ${bits.join(", plus ")}` : "Based on what you've rated highly";
+  if (!recs.items.length) return failNote(el, "Couldn't find recommendations right now. Refresh to try again.");
+  el.innerHTML = recs.items.map((it) => card(it)).join("");
 }
 
 /* ---------- Genre page ---------- */
