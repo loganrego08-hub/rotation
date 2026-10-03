@@ -748,3 +748,27 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
   .feed-item__art { width: 56px; }
   .feed-item .avatar { width: 32px; height: 32px; }
 }
+/* ==========================================================================
+   Discovery: source badges, search filters, browse, surprise
+   ========================================================================== */
+.badge {
+  display: inline-flex; align-items: center; justify-self: start; width: fit-content; height: 20px; padding: 0 var(--s-2);
+  border: 1px solid var(--border-strong); border-radius: var(--r-full); color: var(--text-2);
+  font-size: var(--fs-xs); font-weight: var(--fw-medium); line-height: 1; white-space: nowrap;
+}
+.filters { margin-top: var(--s-4); }
+.filters > summary { cursor: pointer; width: fit-content; padding: var(--s-2) 0; font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--text-2); }
+.filters > summary:hover { color: var(--text); }
+.filters__grid { display: grid; gap: var(--s-4); grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); align-items: end; margin-top: var(--s-3); }
+.filters__grid--browse { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.filters__grid .select { width: 100%; }
+.filters__grid .check { align-self: center; grid-column: span 2; }
+
+.surprise { display: grid; grid-template-columns: minmax(220px, 360px) minmax(0, 1fr); gap: var(--s-10); align-items: start; }
+.surprise__art { display: block; }
+.surprise__body { display: grid; gap: var(--s-4); align-content: start; min-width: 0; }
+@media (max-width: 760px) {
+  .surprise { grid-template-columns: minmax(0, 1fr); gap: var(--s-6); }
+  .surprise__art { width: min(100%, 320px); margin-inline: auto; }
+  .filters__grid .check { grid-column: 1 / -1; }
+}

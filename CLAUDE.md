@@ -36,6 +36,14 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   is hidden from public views and the feed until you set those reports to `dismissed` (restore) or `actioned`.
   Gotcha: views call functions as the CALLER, so any function used inside a public view needs EXECUTE for anon. `report_count` lives in the
   unexposed `private` schema for that reason (so it isn't callable as an RPC). Don't move it back to `public`.
+- Discovery (schema v8): `album_catalog` view feeds `#/browse` (genre, decade, year range, min average, min rating count, album type, sort),
+  Hidden gems (3-20 ratings averaging 8+), and Divisive albums (10+ ratings, sd >= 2.5, 20%+ at 8+ AND 20%+ at 4 or lower; same rule in `spreadNote`).
+  Every home section carries a source badge: "Community ranking" (calculated), "Billboard chart", or "Editorial picks" (hand-picked decade landmarks).
+  Never mix those up; editorial lists must not be presented as rankings.
+  `#/surprise` draws from Rotation's catalog + this week's charts + a random MusicBrainz page, excluding anything you rated/saved/listed/pinned and
+  anything already shown this session. MusicBrainz won't page past ~1000 results (HTTP 400) and rate-limits bursts (503): use `mbSlow` for bulk calls.
+  Search (`#/search/<term>?type=&from=&to=&genre=&artist=`) escapes Lucene input and dedupes identical title+artist release groups.
+  Related albums on the album page always say why: same artist, shared genres (names shown), or listeners who rated both 8+ (`related_by_ratings`, 3+ people).
 - Library (`#/me`): `LIB_VIEWS` (All rated, Recently rated, Highest, Lowest, Favorites, Want to listen, Listened, With notes) x `LIB_SORTS`
   (date, rating, artist, title, release year; missing values always sort last; rating sorts hidden for Want to listen) + title/artist filter.
   Public lists are browsed at `#/lists/browse` from the `public_lists` view; list cards come from `listTile` (adaptive cover collage).

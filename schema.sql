@@ -608,3 +608,39 @@ from public.list_items i join public.lists l on l.id = i.list_id and l.is_public
 join public.profiles p on p.user_id = l.user_id and p.is_public join public.albums a on a.id = i.album_id;
 
 grant select on public.album_reviews, public.public_reviews, public.public_lists, public.public_list_items to anon, authenticated;
+-- v8: discovery (run in the Supabase SQL editor)
+-- One public view of the catalog with community numbers, used by Browse, hidden gems and divisive albums.
+-- A rating count of 0 means nobody has rated it. weighted_score only orders lists; the UI shows avg_score and rating_count.
+-- "Divisive" needs 10+ ratings, a wide spread (sd >= 2.5) and real camps on both sides (20%+ at 8 or higher AND 20%+ at 4 or lower).
+create or replace view public.album_catalog as
+with g as (select coalesce(avg(score), 7)::numeric as c from public.ratings),
+s as (
+  select album_id, count(*)::int as n, avg(score)::numeric as avg, stddev_pop(score)::numeric as sd,
+         avg((score <= 4)::int)::numeric as low_share, avg((score >= 8)::int)::numeric as high_share
+  from public.ratings group by album_id
+)
+select a.id as album_id, a.title, a.artist, a.cover_url, a.release_date, a.genres, a.album_type, a.artist_id,
+       coalesce(s.n, 0) as rating_count,
+       round(s.avg, 1) as avg_score,
+       case when s.n > 0 then round((s.n / (s.n + 5.0)) * s.avg + (5.0 / (s.n + 5.0)) * g.c, 2) end as weighted_score,
+       round(s.sd, 2) as sd, round(s.low_share, 2) as low_share, round(s.high_share, 2) as high_share,
+       (coalesce(s.n, 0) >= 10 and s.sd >= 2.5 and s.low_share >= 0.2 and s.high_share >= 0.2) as is_divisive
+from public.albums a left join s on s.album_id = a.id cross join g;
+grant select on public.album_catalog to anon, authenticated;
+
+-- "People who loved this also loved...": albums that 3 or more of this album's 8+ fans also scored 8+.
+-- Aggregates only; the minimum of 3 people means no individual's ratings can be read off it.
+create or replace function public.related_by_ratings(p_album text, p_min int default 3)
+returns table (album_id text, title text, artist text, cover_url text, co_raters int, avg_score numeric)
+language sql stable security definer set search_path = public as $$
+  with fans as (select user_id from public.ratings where album_id = p_album and score >= 8)
+  select a.id, a.title, a.artist, a.cover_url, count(*)::int, round(avg(r.score), 1)
+  from public.ratings r join fans f on f.user_id = r.user_id join public.albums a on a.id = r.album_id
+  where r.album_id <> p_album and r.score >= 8
+  group by a.id, a.title, a.artist, a.cover_url
+  having count(*) >= greatest(p_min, 3)
+  order by count(*) desc, avg(r.score) desc
+  limit 12;
+$$;
+revoke all on function public.related_by_ratings(text, int) from public;
+grant execute on function public.related_by_ratings(text, int) to anon, authenticated;
