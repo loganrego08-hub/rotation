@@ -24,7 +24,8 @@
         if (k === "then") return (f, r) => Promise.resolve(res()).then(f, r);
         if (["upsert", "insert", "update"].includes(k)) return (d) => { op = k; payload = d; return p; };
         if (k === "delete") return () => { op = "delete"; return p; };
-        if (k === "single" || k === "maybeSingle") return () => Promise.resolve(res());
+        // a read of one row finds nothing; a write that asks for its row back returns it
+        if (k === "single" || k === "maybeSingle") return () => Promise.resolve(op ? res() : { data: null, error: null });
         return () => p;
       }, apply: () => p,
     });
@@ -60,6 +61,54 @@
   document.querySelector("#remove").click(); await wait(600); window.confirm = realConfirm;
   check("removing a rating deletes it", calls.some((c) => c.tb === "ratings" && c.op === "delete"));
   check("the score and review fields reset", document.querySelector("#myScore").textContent.startsWith("–") && document.querySelector("#thoughts").value === "");
+
+  /* ---- listening status: the same rules the database enforces ---- */
+  const upserts = (tb) => calls.filter((c) => c.tb === tb && c.op === "upsert");
+  const stat = (k) => document.querySelector(`[data-st="${k}"]`);
+  const press = async (k) => { stat(k).click(); await wait(500); };
+  calls.length = 0; await renderAlbum(ALBUM); await wait(1500);
+  await press("want");
+  check("Want to listen saves want=true, listened=false", upserts("album_status").at(-1)?.payload.want === true && upserts("album_status").at(-1)?.payload.listened === false, JSON.stringify(upserts("album_status").at(-1)?.payload));
+  check("Want to listen shows as on", stat("want").getAttribute("aria-pressed") === "true");
+  await press("listened");
+  check("Listened clears Want to listen", stat("listened").getAttribute("aria-pressed") === "true" && stat("want").getAttribute("aria-pressed") === "false");
+  await press("favorite");
+  check("Favorite also marks listened", stat("favorite").getAttribute("aria-pressed") === "true" && stat("listened").getAttribute("aria-pressed") === "true");
+  const before = calls.length; await press("listened");
+  check("a favorite can't be un-listened (no write is made)", calls.length === before && stat("listened").getAttribute("aria-pressed") === "true");
+  await press("favorite");
+  check("unfavoriting keeps it listened", stat("favorite").getAttribute("aria-pressed") === "false" && stat("listened").getAttribute("aria-pressed") === "true");
+  await tap(9);
+  const w = calls.length; await press("want");
+  check("a rated album can't be moved to Want to listen", calls.length === w && stat("want").getAttribute("aria-pressed") === "false");
+
+  /* ---- sign-in gate: nothing is written when signed out ---- */
+  user = null; calls.length = 0; await renderAlbum(ALBUM); await wait(1500);
+  document.querySelector('#picker button[data-s="7"]').click(); await wait(300);
+  check("signed-out tap opens sign-in instead of saving", document.querySelector("#authDialog").open && calls.length === 0);
+  document.querySelector("#authClose").click();
+  user = { id: "x", email: "test@example.com" };
+
+  /* ---- following and liking go through the checked server functions ---- */
+  const rpcCalls = [];
+  const tables = { public_profiles: { username: "mira", display_name: "Mira", bio: "", show_ratings: true, created_at: "2026-01-01T00:00:00Z", followers: 3, following: 1, rating_count: 0, avg_score: null, review_count: 0 } };
+  sb.from = (tb) => { const data = tables[tb] ?? []; const res = { data, error: null, count: 0 };
+    const p = new Proxy(function () {}, { get: (_, k) => k === "then" ? (f, r) => Promise.resolve(res).then(f, r) : (k === "maybeSingle" || k === "single") ? () => Promise.resolve({ data: Array.isArray(data) ? (data[0] ?? null) : data, error: null }) : () => p, apply: () => p }); return p; };
+  sb.rpc = (name, args) => { rpcCalls.push(name + ":" + (args.p_username || args.p_rating || "")); return Promise.resolve({ data: name === "is_following" ? false : name === "toggle_review_like" ? { liked: true, count: 1 } : null, error: null }); };
+  await renderPublicProfile("mira"); await wait(1200);
+  const followers = () => document.querySelector("#stFollowers").textContent;
+  check("profile shows the follower count from the public view", followers() === "3");
+  document.querySelector("#followBtn").click(); await wait(500);
+  check("Follow calls follow_user for that username", rpcCalls.includes("follow_user:mira"), rpcCalls.join(","));
+  check("Follow updates the button and count", document.querySelector("#followBtn").textContent.includes("Following") && followers() === "4");
+  document.querySelector("#followBtn").click(); await wait(500);
+  check("Unfollow calls unfollow_user and restores the count", rpcCalls.includes("unfollow_user:mira") && followers() === "3");
+  user = null; rpcCalls.length = 0;
+  await renderPublicProfile("mira"); await wait(1200);
+  document.querySelector("#followBtn").click(); await wait(300);
+  check("signed-out Follow opens sign-in and calls nothing", document.querySelector("#authDialog").open && !rpcCalls.some((c) => c.startsWith("follow_user")));
+  document.querySelector("#authClose").click();
+  user = { id: "x", email: "test@example.com" };
 
   const fails = results.filter((r) => r.startsWith("FAIL")).length;
   results.forEach((r) => console.log(r));
