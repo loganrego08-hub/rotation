@@ -4,7 +4,7 @@ The app has no build step and no test framework, so the tests match: plain files
 
 | Layer | File | How to run | What it covers |
 | --- | --- | --- | --- |
-| Unit | `tests/index.html` | Serve the repo with any static server and open `/tests/index.html` | Pure logic in `lib.js`: taste comparison, yearly recap, recommendation merging |
+| Unit | `tests/index.html` | Serve the repo with any static server and open `/tests/index.html` | Pure logic in `lib.js` (23 tests): taste comparison, yearly recap, recommendation merging, search query building and escaping, album-type labels, divisive-album rule, MusicBrainz paging window |
 | Database flows | `tests/db-flows.sql` | Paste into the Supabase SQL editor (or any SQL runner). It always rolls back and prints results in the error message | Rating persistence, duplicate prevention, aggregates, edit/remove, listening status, public lists seen by another user, follow + feed, and that one user cannot modify another's data (run as the real `authenticated` and `anon` roles, so row-level security applies) |
 | API security | `tests/security-check.ps1` | `powershell -File tests/security-check.ps1` | With only the public key: private tables return nothing, public views leak no user ids or emails, writes and signed-in-only functions are refused |
 | Client flows | `tests/client-flows.js` | Paste into the browser console on the running app. It swaps the database client for a recording stub (nothing is written) and drives the real album page | Tapping a score saves only the score, a failed save reverts and explains, saving a review omits sharing flags, removing a rating resets the page |
@@ -20,10 +20,10 @@ level only.
 | --- | --- | --- |
 | 1 | A visitor discovers and searches for an album | Run in a browser, signed out (home, search with filters, browse, surprise, direct URLs) |
 | 2 | A user creates an account and signs in | **Not run** (manual) |
-| 3 | A user rates an album | Database level run (`db-flows.sql`). UI **not run** |
+| 3 | A user rates an album | Database level run (`db-flows.sql`). Page logic run against a stub (`client-flows.js`). Real sign-in UI **not run** |
 | 4 | The rating persists after a refresh | Database level run (re-read in a new statement). UI **not run** |
 | 5 | Community average and count update | Database level run: 1 rating, 2 ratings, after edit, after removal |
-| 6 | A user edits or removes their rating | Database level run. UI **not run** |
+| 6 | A user edits or removes their rating | Database level run. Remove path run against a stub (`client-flows.js`). Real sign-in UI **not run** |
 | 7 | A user saves an album to their library | Database level run (`album_status.want`). UI **not run** |
 | 8 | A user creates a public list and adds albums | Database level run. UI **not run** |
 | 9 | Another user visits the list | Database level run (second user and anon both see the public list, not the private one) |
