@@ -7,6 +7,7 @@ The app has no build step and no test framework, so the tests match: plain files
 | Unit | `tests/index.html` | Serve the repo with any static server and open `/tests/index.html` | Pure logic in `lib.js`: taste comparison, yearly recap, recommendation merging |
 | Database flows | `tests/db-flows.sql` | Paste into the Supabase SQL editor (or any SQL runner). It always rolls back and prints results in the error message | Rating persistence, duplicate prevention, aggregates, edit/remove, listening status, public lists seen by another user, follow + feed, and that one user cannot modify another's data (run as the real `authenticated` and `anon` roles, so row-level security applies) |
 | API security | `tests/security-check.ps1` | `powershell -File tests/security-check.ps1` | With only the public key: private tables return nothing, public views leak no user ids or emails, writes and signed-in-only functions are refused |
+| Client flows | `tests/client-flows.js` | Paste into the browser console on the running app. It swaps the database client for a recording stub (nothing is written) and drives the real album page | Tapping a score saves only the score, a failed save reverts and explains, saving a review omits sharing flags, removing a rating resets the page |
 | Manual UI | the checklist below | A person, in a browser | Everything that needs a real sign-in |
 
 ## The 12 end-to-end flows
