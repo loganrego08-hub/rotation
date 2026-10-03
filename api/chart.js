@@ -7,7 +7,7 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const norm = (s) => String(s || "").toLowerCase().replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/[^a-z0-9]/g, "");
 const sameArtist = (a, b) => { a = norm(a); b = norm(b); return a && b && (a.includes(b.slice(0, 6)) || b.includes(a.slice(0, 6))); };
 const num = (v) => (/^\d+$/.test(String(v).trim()) ? +v : null);
-const decode = (s) => String(s || "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#0?39;|&#8217;|&rsquo;/g, "'")
+const decode = (s) => String(s || "").replace(/<[^>]+>/g, "").replace(/&nbsp;|&#160;/g, " ").replace(/&amp;/g, "&").replace(/&#0?39;|&#8217;|&rsquo;/g, "'")
   .replace(/&quot;|&#8220;|&#8221;/g, '"').replace(/&#8211;/g, "-").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/\s+/g, " ").trim();
 
 function parseCSV(t) {
@@ -44,9 +44,14 @@ async function billboard200() {
   throw new Error("No recent Billboard 200 found");
 }
 
+// Billboard's "top-" slugs now redirect to year-end charts; use the weekly ones
+const ALIASES = { "top-country-albums": "country-albums", "top-rock-albums": "rock-albums" };
+
 async function billboardPage(slug) {
+  slug = ALIASES[slug] || slug;
   const r = await fetch(`https://www.billboard.com/charts/${slug}/`, { headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" } });
   if (!r.ok) throw new Error(`Billboard returned ${r.status} for ${slug}`);
+  if (/year-end/.test(r.url)) throw new Error(`${slug} is not a weekly chart`);
   const html = await r.text();
   const name = decode((html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || [])[1]) || slug;
   const weekText = (html.match(/Week of ([A-Z][a-z]+ \d{1,2}, \d{4})/) || [])[1];
@@ -56,7 +61,7 @@ async function billboardPage(slug) {
     const t = chunk.match(/<h3[^>]*id="title-of-a-story"[^>]*>([\s\S]*?)<\/h3>/);
     if (!t) continue;
     const after = chunk.slice(chunk.indexOf(t[0]) + t[0].length);
-    const labels = [...after.matchAll(/<span[^>]*class="c-label[^"]*"[^>]*>([\s\S]*?)<\/span>/g)].map((m) => decode(m[1])).filter(Boolean);
+    const labels = [...after.matchAll(/<span[^>]*class="[^"]*\bc-label\b[^"]*"[^>]*>([\s\S]*?)<\/span>/g)].map((m) => decode(m[1])).filter(Boolean);
     const stats = labels.slice(1).filter((x) => /^(\d+|-)$/.test(x));
     const img = (chunk.match(/data-lazy-src="([^"]+)"/) || [])[1];
     items.push({
