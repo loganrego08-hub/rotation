@@ -206,3 +206,180 @@ select a.id as album_id, a.title, a.artist, a.cover_url, a.release_date,
        round((s.rating_count / (s.rating_count + 5.0)) * s.avg_score + (5.0 / (s.rating_count + 5.0)) * g.c, 2) as weighted_score
 from s join public.albums a on a.id = s.album_id cross join g;
 grant select on public.album_rankings to anon, authenticated;
+-- v6: profiles, follows, pinned favorites and lists (run in the Supabase SQL editor)
+-- Privacy model: base tables are readable only by their owner. Everything another person can see goes through the
+-- public_* views below, which only return rows for profiles whose owner chose to make them public. No view exposes
+-- an email address or auth user id.
+
+alter table public.ratings add column if not exists credit_profile boolean not null default false;
+
+create or replace function public.touch_updated_at() returns trigger language plpgsql as $$
+begin new.updated_at := now(); return new; end $$;
+
+create table if not exists public.profiles (
+  user_id uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  username text not null unique,
+  display_name text,
+  bio text,
+  avatar_album_id text references public.albums(id) on delete set null,
+  is_public boolean not null default false,       -- private until the owner opts in
+  show_ratings boolean not null default true,     -- only matters when the profile is public
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint profiles_username_format check (username ~ '^[a-z0-9_]{3,20}$'
+    and username not in ('me','admin','rotation','support','root','null','undefined','api','settings','new','edit')),
+  constraint profiles_display_name_len check (display_name is null or char_length(btrim(display_name)) between 1 and 40),
+  constraint profiles_bio_len check (bio is null or char_length(bio) <= 280)
+);
+alter table public.profiles enable row level security;
+create policy "Users read their own profile" on public.profiles for select to authenticated using (auth.uid() = user_id);
+create policy "Users create their own profile" on public.profiles for insert to authenticated with check (auth.uid() = user_id);
+create policy "Users edit their own profile" on public.profiles for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "Users delete their own profile" on public.profiles for delete to authenticated using (auth.uid() = user_id);
+drop trigger if exists profiles_touch on public.profiles;
+create trigger profiles_touch before update on public.profiles for each row execute function public.touch_updated_at();
+
+-- Up to six pinned favorite albums.
+create table if not exists public.profile_pins (
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  album_id text not null references public.albums(id) on delete cascade,
+  position int not null check (position between 1 and 6),
+  created_at timestamptz not null default now(),
+  primary key (user_id, album_id),
+  unique (user_id, position) deferrable initially deferred
+);
+alter table public.profile_pins enable row level security;
+create policy "Users manage their own pins" on public.profile_pins for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Follows are created only through follow_user(), which checks that the target profile is public.
+create table if not exists public.follows (
+  follower_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  followee_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (follower_id, followee_id),
+  check (follower_id <> followee_id)
+);
+alter table public.follows enable row level security;
+create policy "Users see who they follow" on public.follows for select to authenticated using (auth.uid() = follower_id);
+create policy "Users unfollow" on public.follows for delete to authenticated using (auth.uid() = follower_id);
+
+create or replace function public.follow_user(p_username text) returns void language plpgsql security definer set search_path = public as $$
+declare target uuid; n int;
+begin
+  if auth.uid() is null then raise exception 'Sign in to follow people.'; end if;
+  select user_id into target from public.profiles where username = lower(p_username) and is_public;
+  if target is null then raise exception 'That profile is not available.'; end if;
+  if target = auth.uid() then raise exception 'You can''t follow yourself.'; end if;
+  select count(*) into n from public.follows where follower_id = auth.uid();
+  if n >= 1000 then raise exception 'You are following the maximum number of people.'; end if;
+  insert into public.follows (follower_id, followee_id) values (auth.uid(), target) on conflict do nothing;
+end $$;
+create or replace function public.unfollow_user(p_username text) returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  delete from public.follows where follower_id = auth.uid()
+    and followee_id = (select user_id from public.profiles where username = lower(p_username));
+end $$;
+create or replace function public.is_following(p_username text) returns boolean language sql security definer set search_path = public stable as $$
+  select exists (select 1 from public.follows f join public.profiles p on p.user_id = f.followee_id
+                 where f.follower_id = auth.uid() and p.username = lower(p_username));
+$$;
+revoke all on function public.follow_user(text), public.unfollow_user(text), public.is_following(text) from public, anon;
+grant execute on function public.follow_user(text), public.unfollow_user(text), public.is_following(text) to authenticated;
+
+-- Lists
+create table if not exists public.lists (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  title text not null check (char_length(btrim(title)) between 1 and 80),
+  description text check (description is null or char_length(description) <= 500),
+  is_public boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists lists_user_idx on public.lists (user_id, updated_at desc);
+alter table public.lists enable row level security;
+create policy "Users manage their own lists" on public.lists for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop trigger if exists lists_touch on public.lists;
+create trigger lists_touch before update on public.lists for each row execute function public.touch_updated_at();
+create or replace function public.guard_lists() returns trigger language plpgsql as $$
+begin
+  if (select count(*) from public.lists where user_id = new.user_id) >= 50 then raise exception 'You can have up to 50 lists.'; end if;
+  return new;
+end $$;
+drop trigger if exists lists_guard on public.lists;
+create trigger lists_guard before insert on public.lists for each row execute function public.guard_lists();
+
+create table if not exists public.list_items (
+  list_id uuid not null references public.lists(id) on delete cascade,
+  album_id text not null references public.albums(id) on delete cascade,
+  position int not null,
+  added_at timestamptz not null default now(),
+  primary key (list_id, album_id)
+);
+alter table public.list_items enable row level security;
+create policy "Users manage items in their own lists" on public.list_items for all to authenticated
+  using (exists (select 1 from public.lists l where l.id = list_id and l.user_id = auth.uid()))
+  with check (exists (select 1 from public.lists l where l.id = list_id and l.user_id = auth.uid()));
+create or replace function public.guard_list_items() returns trigger language plpgsql as $$
+begin
+  if (select count(*) from public.list_items where list_id = new.list_id) >= 200 then raise exception 'A list can hold up to 200 albums.'; end if;
+  if new.position is null then
+    select coalesce(max(position), 0) + 1 into new.position from public.list_items where list_id = new.list_id;
+  end if;
+  return new;
+end $$;
+drop trigger if exists list_items_guard on public.list_items;
+create trigger list_items_guard before insert on public.list_items for each row execute function public.guard_list_items();
+
+-- Public views (profile must be public). Usernames identify people; user ids and emails are never exposed.
+create or replace view public.public_profiles as
+select p.username, p.display_name, p.bio, p.show_ratings, p.created_at, p.avatar_album_id, av.cover_url as avatar_cover,
+  (select count(*) from public.follows f where f.followee_id = p.user_id)::int as followers,
+  (select count(*) from public.follows f where f.follower_id = p.user_id)::int as following,
+  case when p.show_ratings then (select count(*) from public.ratings r where r.user_id = p.user_id)::int end as rating_count,
+  case when p.show_ratings then (select round(avg(r.score), 1) from public.ratings r where r.user_id = p.user_id) end as avg_score,
+  (select count(*) from public.ratings r where r.user_id = p.user_id and r.credit_profile and r.is_public and nullif(btrim(r.thoughts), '') is not null)::int as review_count
+from public.profiles p left join public.albums av on av.id = p.avatar_album_id
+where p.is_public;
+
+create or replace view public.public_pins as
+select p.username, n.position, a.id as album_id, a.title, a.artist, a.cover_url
+from public.profile_pins n join public.profiles p on p.user_id = n.user_id and p.is_public join public.albums a on a.id = n.album_id;
+
+create or replace view public.public_ratings as
+select p.username, a.id as album_id, a.title, a.artist, a.cover_url, a.genres, r.score, r.updated_at as rated_at,
+  (r.credit_profile and r.is_public and nullif(btrim(r.thoughts), '') is not null) as has_review
+from public.ratings r join public.profiles p on p.user_id = r.user_id and p.is_public and p.show_ratings join public.albums a on a.id = r.album_id;
+
+create or replace view public.public_reviews as
+select p.username, a.id as album_id, a.title, a.artist, a.cover_url,
+  case when p.show_ratings then r.score end as score, r.thoughts as body, r.updated_at
+from public.ratings r join public.profiles p on p.user_id = r.user_id and p.is_public join public.albums a on a.id = r.album_id
+where r.credit_profile and r.is_public and nullif(btrim(r.thoughts), '') is not null;
+
+create or replace view public.public_lists as
+select l.id, p.username, l.title, l.description, l.created_at, l.updated_at,
+  (select count(*) from public.list_items i where i.list_id = l.id)::int as item_count,
+  (select array_agg(a.cover_url order by i.position) from (select album_id, position from public.list_items where list_id = l.id order by position limit 4) i
+     join public.albums a on a.id = i.album_id) as covers
+from public.lists l join public.profiles p on p.user_id = l.user_id and p.is_public where l.is_public;
+
+create or replace view public.public_list_items as
+select i.list_id, i.position, p.username, a.id as album_id, a.title, a.artist, a.cover_url
+from public.list_items i join public.lists l on l.id = i.list_id and l.is_public
+join public.profiles p on p.user_id = l.user_id and p.is_public join public.albums a on a.id = i.album_id;
+
+-- Shared reviews: credited to a profile only when the writer ticked "Credit this review to my profile".
+create or replace view public.album_reviews as
+select r.id, r.album_id,
+       case when r.credit_profile and p.is_public then coalesce(nullif(btrim(p.display_name), ''), p.username)
+            else coalesce(nullif(btrim(r.display_name), ''), 'Anonymous listener') end as author,
+       r.score, r.thoughts as body, r.standout_tracks, r.updated_at,
+       (r.user_id = auth.uid()) as is_mine,
+       case when r.credit_profile and p.is_public then p.username end as author_username
+from public.ratings r left join public.profiles p on p.user_id = r.user_id
+where r.is_public and nullif(btrim(r.thoughts), '') is not null;
+
+grant select on public.public_profiles, public.public_pins, public.public_ratings, public.public_reviews,
+  public.public_lists, public.public_list_items, public.album_reviews to anon, authenticated;

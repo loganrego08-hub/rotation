@@ -164,6 +164,8 @@ const ICONS = {
   compass: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
   bookmark: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
   heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  pin: '<path d="M12 17v5M8 3h8l-1 6 3 3H6l3-3z"/>',
   share: '<path d="M12 15V4M8 8l4-4 4 4M5 13v6h14v-6"/>',
 };
 const icon = (name, cls = "icon") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
@@ -222,11 +224,11 @@ function listCard(r, rank) {
     ${scoreChip(r.score, { mine: true })}</a>`;
 }
 
-function reviewCard({ name, date, score, body, standouts = [], mine = false }) {
+function reviewCard({ name, date, score, body, standouts = [], mine = false, href }) {
   return `<article class="review-card">
     <header class="review-card__head">
       <span class="avatar" aria-hidden="true">${esc(name.charAt(0).toUpperCase())}</span>
-      <span class="review-card__who"><strong>${esc(name)}</strong><span class="t-meta">${date ? `Reviewed ${fmtDate(String(date).slice(0, 10), "short")}` : ""}</span></span>
+      <span class="review-card__who">${href ? `<a href="${href}"><strong>${esc(name)}</strong></a>` : `<strong>${esc(name)}</strong>`}<span class="t-meta">${date ? `Reviewed ${fmtDate(String(date).slice(0, 10), "short")}` : ""}</span></span>
       ${scoreChip(score, { mine, label: mine ? undefined : "Reviewer's score" })}
     </header>
     <p class="review-card__body${body ? "" : " review-card__body--empty"}">${body ? esc(body) : "No notes yet. Add a few thoughts below."}</p>
@@ -234,13 +236,13 @@ function reviewCard({ name, date, score, body, standouts = [], mine = false }) {
   </article>`;
 }
 
-function profileHeader({ initial, eyebrow, name, stats = [], extra = "" }) {
+function profileHeader({ initial, avatar, eyebrow, name, stats = [], extra = "" }) {
   return `<header class="profile">
-    <span class="avatar avatar--lg" aria-hidden="true">${esc(initial)}</span>
+    ${avatar || `<span class="avatar avatar--lg" aria-hidden="true">${esc(initial)}</span>`}
     <div>
       ${eyebrow ? `<p class="profile__eyebrow">${esc(eyebrow)}</p>` : ""}
       <h1 class="t-title">${esc(name)}</h1>
-      ${stats.length ? `<dl class="profile__stats">${stats.map((s) => `<div class="stat"><dt class="stat__label">${esc(s.label)}</dt><dd class="stat__value" style="margin:0">${esc(s.value)}</dd></div>`).join("")}</dl>` : ""}
+      ${stats.length ? `<dl class="profile__stats">${stats.map((s) => `<div class="stat"><dt class="stat__label">${esc(s.label)}</dt><dd class="stat__value"${s.id ? ` id="${s.id}"` : ""} style="margin:0">${esc(s.value)}</dd></div>`).join("")}</dl>` : ""}
       ${extra}
     </div></header>`;
 }
@@ -314,15 +316,18 @@ function fillGenreCards(root = document) {
 /* ==========================================================================
    Account: nav avatar, dropdown, sign-in dialog
    ========================================================================== */
-const displayName = () => (user?.email || "You").split("@")[0];
+// Only ever shown to the signed-in user themselves (the email prefix is a private fallback, never published)
+const displayName = () => profile?.display_name || profile?.username || (user?.email || "You").split("@")[0];
 function renderAccount() {
   const el = $("#account");
   if (!sb) { el.innerHTML = ""; return; }
   if (!user) { el.innerHTML = button("Sign in", { variant: "primary", size: "sm", id: "signIn" }); $("#signIn").onclick = openAuth; return; }
-  el.innerHTML = `<button type="button" class="avatar" id="acctBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">${esc(displayName().charAt(0).toUpperCase())}</button>
+  el.innerHTML = `<button type="button" class="avatar" id="acctBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">${profile?.avatar_cover ? `<img src="${esc(smallArt(profile.avatar_cover))}" alt="" onerror="this.remove()">` : esc(displayName().charAt(0).toUpperCase())}</button>
     <div class="menu menu--account" id="acctMenu" role="menu" hidden>
       <div class="menu__label">${esc(user.email)}</div>
-      <a class="menu__item" role="menuitem" href="#/me">${icon("user")}Your profile</a>
+      <a class="menu__item" role="menuitem" href="#/me">${icon("disc")}Your shelf</a>
+      <a class="menu__item" role="menuitem" href="${profile ? profileHref(profile.username) : "#/me/edit"}">${icon("user")}${profile ? "Your profile" : "Create profile"}</a>
+      <a class="menu__item" role="menuitem" href="#/lists/yours">${icon("list")}Your lists</a>
       <button type="button" class="menu__item" role="menuitem" id="signOut">${icon("logout")}Sign out</button>
     </div>`;
   const btn = $("#acctBtn"), menu = $("#acctMenu");
@@ -764,10 +769,10 @@ async function renderDecade(start) {
 
 /* ---------- Lists ---------- */
 async function renderLists(tab) {
-  if (!["charts", "community", "mine"].includes(tab)) tab = "charts";
+  if (!["charts", "community", "mine", "yours"].includes(tab)) tab = "charts";
   document.title = "Lists · Rotation";
-  view().innerHTML = `<header class="page-head"><h1 class="t-page">Lists</h1><p class="t-lead">Ranked lists from the charts, the community and your own shelf.</p></header>
-    ${tabs([["charts", "Charts"], ["community", "Top rated"], ["mine", "Your ranking"]], tab, "Lists")}
+  view().innerHTML = `<header class="page-head"><h1 class="t-page">Lists</h1><p class="t-lead">Ranked lists from the charts, the community and your own shelf. Make your own and share them.</p></header>
+    ${tabs([["charts", "Charts"], ["community", "Top rated"], ["mine", "Your ranking"], ["yours", "My lists"]], tab, "Lists")}
     <div id="lbody">${loadingLabel("Loading list")}<div class="grid">${skCards(8)}</div></div>`;
   $$("[data-tab]").forEach((b) => b.onclick = () => { location.hash = `#/lists/${b.dataset.tab}`; });
   const el = $("#lbody");
@@ -791,6 +796,8 @@ async function renderLists(tab) {
         : emptyState({ iconName: "star", title: "No album has enough ratings yet", body: `Albums need ${MIN_RATINGS} ratings to appear here. Score a few and help build the list.`,
             actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) });
     } catch { fail(); }
+  } else if (tab === "yours") {
+    await renderMyLists(el);
   } else if (!sb || !user) {
     el.innerHTML = emptyState({ iconName: "user", title: "Your ranking lives here", body: "Sign in to keep a ranked list of everything you've scored.",
       actions: button("Sign in", { variant: "primary", id: "listSignIn" }) });
@@ -959,9 +966,12 @@ async function renderProfile() {
           : `<div class="grid">${list.map((r) => albumCard({ id: r.album.id, title: r.album.title, artist: r.album.artist, art: r.album.cover_url },
               { score: r.score, mine: true, meta: r.thoughts ? "Has notes" : null })).join("")}</div>`;
     view().innerHTML = `
-      ${profileHeader({ initial: displayName().charAt(0).toUpperCase(), name: displayName(), eyebrow: since, stats: [
+      ${profileHeader({ initial: displayName().charAt(0).toUpperCase(), avatar: profile ? avatarHTML(profile, "lg") : undefined, name: displayName(), eyebrow: since, stats: [
         { label: "Albums rated", value: rows.length }, { label: "Average score", value: avg },
-        { label: "Standout tracks", value: standouts }, { label: "Top genre", value: topGenre }] })}
+        { label: "Standout tracks", value: standouts }, { label: "Top genre", value: topGenre }],
+        extra: `<div class="chips" style="margin-top:var(--s-4)">${profile
+          ? `${button("View public profile", { size: "sm", href: profileHref(profile.username), iconName: "user" })}${button("Edit profile", { size: "sm", href: "#/me/edit", iconName: "note" })}<span class="t-meta" style="align-self:center">${profile.is_public ? "Public" : "Private until you make it public"}</span>`
+          : `${button("Create your profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}<span class="t-meta" style="align-self:center">Pin favorites, share lists and let people follow you.</span>`}</div>` })}
       <div class="toolbar">
         ${tabs([["ranked", "Ranked"], ["recent", "Recently rated"], ["notes", "With notes"], ["favorite", "Favorites"], ["want", "Want to listen"], ["listened", "Listened"]], profileTab, "Sort your shelf")}
         <div class="segmented" role="group" aria-label="Layout">
@@ -1100,16 +1110,18 @@ async function renderAlbum(id) {
   // One state object drives every repaint, so rating and status changes update in place and never wipe an unsaved review.
   // Scores are whole numbers from 1 to 10, the scale Rotation already uses everywhere.
   const S = { mine: null, score: 0, stats: null, counts: null, status: { listened: false, want: false, favorite: false },
-    standouts: new Set(), busy: false, statusBusy: false, albumSaved: false };
+    standouts: new Set(), busy: false, statusBusy: false, albumSaved: false, pins: [] };
   let reviews = [];
   if (sb) {
-    const [s, r, c, st, rv] = await Promise.all([
+    const [s, r, c, st, rv, pn] = await Promise.all([
       sb.from("album_stats").select("avg_score, rating_count").eq("album_id", id).maybeSingle(),
       user ? sb.from("ratings").select("*").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
       sb.from("album_score_counts").select("score, n").eq("album_id", id),
       user ? sb.from("album_status").select("listened, want, favorite").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
       sb.from("album_reviews").select("*").eq("album_id", id).order("updated_at", { ascending: false }).limit(20),
+      user ? sb.from("profile_pins").select("album_id, position") : Promise.resolve({ data: null }),
     ]);
+    S.pins = pn.data || [];
     S.stats = s.data; S.mine = r.data; S.score = r.data?.score || 0; S.standouts = new Set(r.data?.standout_tracks || []);
     if (st.data) S.status = st.data;
     if (c.data?.length) { S.counts = Array(10).fill(0); c.data.forEach((x) => { if (x.score >= 1 && x.score <= 10) S.counts[x.score - 1] = x.n; }); }
@@ -1120,6 +1132,8 @@ async function renderAlbum(id) {
   const eyebrow = () => [album.album_type, yr].filter(Boolean).join(" · ");
   const facts = [album.release_date ? fmtDate(album.release_date) : "", album.tracks?.length ? plural(album.tracks.length, "track") : "", total ? `${Math.round(total / 60000)} min` : ""].filter(Boolean);
   const shared = !!S.mine?.is_public;
+  const isPinned = () => S.pins.some((x) => x.album_id === album.id);
+  const canCredit = () => !!profile?.is_public;
   const ratedOn = () => S.mine ? `Rated ${fmtDate(String(S.mine.updated_at || S.mine.created_at).slice(0, 10), "short")}` : "Not rated yet";
 
   const communityHTML = () => {
@@ -1162,6 +1176,8 @@ async function renderAlbum(id) {
         <div class="album__actions">
           ${button(S.mine ? "Edit your rating" : "Rate this album", { variant: "primary", id: "jumpRate", iconName: "star" })}
           ${button("Share", { id: "shareBtn", iconName: "share" })}
+          <button type="button" class="btn" id="pinBtn" aria-pressed="${isPinned()}">${icon(isPinned() ? "check" : "pin")}<span>${isPinned() ? "Pinned to profile" : "Pin to profile"}</span></button>
+          ${button("Add to list", { id: "listBtn", iconName: "list" })}
         </div>
         <div id="statusWrap" class="status-wrap">${statusHTML()}</div>
 
@@ -1198,6 +1214,7 @@ async function renderAlbum(id) {
             <textarea id="thoughts" class="textarea" maxlength="2000" placeholder="What stuck with you? Favorite moments, how it holds up, where it fits.">${esc(S.mine?.thoughts || "")}</textarea>
           </label>
           <label class="check"><input type="checkbox" id="isPublic"${shared ? " checked" : ""}><span>Share this review with the community</span></label>
+          <label class="check" id="creditField" hidden><input type="checkbox" id="creditProfile"${S.mine?.credit_profile ? " checked" : ""}><span>Credit this review to my profile${profile ? ` (@${esc(profile.username)})` : ""}</span></label>
           <label class="field" id="nameField"${shared ? "" : " hidden"}><span class="field__label">Show as</span>
             <input id="displayNameInput" class="input" maxlength="40" placeholder="Anonymous listener" value="${esc(S.mine?.display_name || "")}" autocomplete="off">
           </label>
@@ -1211,7 +1228,7 @@ async function renderAlbum(id) {
 
         <section class="block" id="reviews" aria-labelledby="rev-h">
           <div class="block__head"><h2 class="t-section" id="rev-h">Community reviews</h2>${reviews.length ? `<span class="t-meta">${plural(reviews.length, "review")}</span>` : ""}</div>
-          ${reviews.length ? `<div class="reviews">${reviews.map((r) => reviewCard({ name: r.author, date: r.updated_at, score: r.score, body: r.body, standouts: r.standout_tracks || [] })).join("")}</div>`
+          ${reviews.length ? `<div class="reviews">${reviews.map((r) => reviewCard({ name: r.author, date: r.updated_at, score: r.score, body: r.body, standouts: r.standout_tracks || [], href: r.author_username ? profileHref(r.author_username) : null })).join("")}</div>`
             : emptyState({ iconName: "note", title: "No written reviews yet", body: "Reviews appear here when listeners choose to share them. Notes stay private unless the writer shares them.", plain: true })}
         </section>
       </div>
@@ -1305,14 +1322,17 @@ async function renderAlbum(id) {
 
   /* ----- events ----- */
   const paintHint = () => {
-    $("#nameField").hidden = !$("#isPublic").checked;
-    $("#reviewHint").textContent = $("#isPublic").checked
-      ? "Your review and score will show on this page under the name above. Your email is never shown."
-      : "Only you can see your review. Your score still counts toward the community average.";
+    const pub = $("#isPublic").checked, credit = pub && canCredit() && $("#creditProfile").checked;
+    $("#creditField").hidden = !(pub && canCredit());
+    $("#nameField").hidden = !pub || credit;
+    $("#reviewHint").textContent = !pub ? "Only you can see your review. Your score still counts toward the community average."
+      : credit ? `Your review and score will show on this page and on your public profile, with a link to @${profile.username}. Your email is never shown.`
+      : "Your review and score will show on this page under the name above, with no link to your profile. Your email is never shown.";
   };
   // On phones the Save bar floats above the tab bar, but only once there is a review or standout change to save
   const markDirty = () => $(".save-bar")?.classList.add("is-dirty");
   $("#isPublic").onchange = () => { paintHint(); markDirty(); };
+  $("#creditProfile").onchange = () => { paintHint(); markDirty(); };
   $("#thoughts").addEventListener("input", markDirty);
   $("#displayNameInput").addEventListener("input", markDirty);
   $("#tracks")?.addEventListener("click", markDirty);
@@ -1321,6 +1341,29 @@ async function renderAlbum(id) {
   $("#jumpRate").onclick = () => {
     $("#yourRating").scrollIntoView({ block: "start" });
     ($("#picker button[aria-pressed='true']") || $("#picker button")).focus({ preventScroll: true });
+  };
+  $("#listBtn").onclick = () => { if (!needSignIn()) openListPicker(album, ensureAlbum); };
+  $("#pinBtn").onclick = async () => {
+    if (needSignIn()) return;
+    const btn = $("#pinBtn"); btn.setAttribute("aria-busy", "true");
+    let error = null;
+    if (isPinned()) {
+      ({ error } = await sb.from("profile_pins").delete().eq("album_id", album.id));
+      if (!error) S.pins = S.pins.filter((x) => x.album_id !== album.id);
+    } else if (S.pins.length >= 6) {
+      btn.removeAttribute("aria-busy");
+      return toast("You can pin up to 6 albums. Unpin one in Edit profile first.", "info");
+    } else {
+      const position = [1, 2, 3, 4, 5, 6].find((n) => !S.pins.some((x) => x.position === n));
+      error = await ensureAlbum();
+      if (!error) ({ error } = await sb.from("profile_pins").insert({ album_id: album.id, position }));
+      if (!error) S.pins.push({ album_id: album.id, position });
+    }
+    btn.removeAttribute("aria-busy");
+    if (error) return toast(`Couldn't update your pins: ${apiError(error)}`, "error");
+    btn.setAttribute("aria-pressed", String(isPinned()));
+    btn.innerHTML = `${icon(isPinned() ? "check" : "pin")}<span>${isPinned() ? "Pinned to profile" : "Pin to profile"}</span>`;
+    toast(isPinned() ? (profile?.is_public ? "Pinned to your profile" : "Pinned. Make your profile public to show it.") : "Unpinned", isPinned() ? "success" : "info");
   };
   $("#shareBtn").onclick = async () => {
     const data = { title: `${album.title} by ${album.artist}`, text: `${album.title} by ${album.artist} on Rotation`, url: location.href };
@@ -1362,7 +1405,9 @@ async function renderAlbum(id) {
     const row = { user_id: user.id, album_id: album.id, score: S.score, standout_tracks: [...S.standouts], thoughts: body };
     // Only send the sharing columns when they matter, so saving also works on databases without schema v4
     if (pub || S.mine?.is_public) row.is_public = pub;
-    if (pub || name || S.mine?.display_name) row.display_name = name || null;
+    const credit = pub && canCredit() && $("#creditProfile").checked;
+    if (profile && (credit || S.mine?.credit_profile)) row.credit_profile = credit;
+    if (pub || name || S.mine?.display_name) row.display_name = credit ? null : (name || null);
     let error = await ensureAlbum();
     let data = null;
     if (!error) ({ data, error } = await sb.from("ratings").upsert(row, { onConflict: "user_id,album_id" }).select("*").single());
@@ -1432,13 +1477,458 @@ function renderNotFound() {
 }
 
 /* ==========================================================================
+   Profiles, follows, pinned favorites and lists
+   Other people only ever see rows from the public_* views, and only for profiles
+   whose owner made them public. Your own page reads your own tables directly.
+   ========================================================================== */
+const profileHref = (username) => `#/u/${username}`;
+const profileUrl = (username) => `${location.origin}${location.pathname}#/u/${username}`;
+let profile = null; // the signed-in user's own profile row (private or public), or null
+async function loadProfile() {
+  profile = null;
+  if (!sb || !user) return;
+  const { data } = await sb.from("profiles").select("*, albums(cover_url)").maybeSingle();
+  if (data) profile = { ...data, avatar_cover: data.albums?.cover_url || null };
+}
+
+function avatarHTML(p, size = "") {
+  const cls = `avatar${size ? ` avatar--${size}` : ""}`;
+  const initial = (p.display_name || p.username || "?").trim().charAt(0).toUpperCase();
+  return p.avatar_cover
+    ? `<span class="${cls}" aria-hidden="true"><img src="${esc(smallArt(p.avatar_cover))}" alt="" loading="lazy" onerror="this.remove()"></span>`
+    : `<span class="${cls}" aria-hidden="true">${esc(initial)}</span>`;
+}
+// Album artwork with the score tucked into a corner, so grids stay clean
+function tile({ href, art, title, artist, score, mine = false, note }) {
+  return `<a class="tile" href="${href}" title="${esc(title)}${artist ? ` · ${esc(artist)}` : ""}">
+    <span class="tile__art">${artwork(smallArt(art), `${title}${artist ? ` by ${artist}` : ""}`)}${score != null ? `<span class="tile__score${mine ? " tile__score--mine" : ""}"><span class="sr">Score: </span>${score}</span>` : ""}</span>
+    <span class="tile__title">${esc(title)}</span>${note ? `<span class="tile__note">${esc(note)}</span>` : ""}</a>`;
+}
+function listTile(l, own = false) {
+  const covers = l.covers || [];
+  return `<a class="listtile" href="#/list/${l.id}">
+    <span class="collage">${[0, 1, 2, 3].map((i) => covers[i] ? `<span class="collage__cell"><img src="${esc(smallArt(covers[i]))}" alt="" loading="lazy" onerror="this.remove()"></span>` : `<span class="collage__cell"></span>`).join("")}</span>
+    <span class="listtile__title">${esc(l.title)}</span>
+    <span class="t-meta">${plural(l.item_count, "album")}${own ? (l.is_public ? " · Public" : " · Private") : ""}</span></a>`;
+}
+
+// What the page needs, in one shape whether it came from the owner's tables or the public views
+async function loadProfileData(p, own) {
+  const q = (req) => req.then((r) => r.data || []).catch(() => []);
+  const u = p.username;
+  if (own) {
+    const [pins, ratings, lists] = await Promise.all([
+      q(sb.from("profile_pins").select("position, album:albums(id,title,artist,cover_url)").order("position")),
+      q(sb.from("ratings").select("score, thoughts, is_public, credit_profile, updated_at, album:albums(id,title,artist,cover_url,genres)").order("updated_at", { ascending: false }).limit(300)),
+      q(sb.from("lists").select("id, title, description, is_public, list_items(position, album:albums(cover_url))").order("updated_at", { ascending: false })),
+    ]);
+    const rs = ratings.filter((r) => r.album).map((r) => ({ album_id: r.album.id, title: r.album.title, artist: r.album.artist, cover_url: r.album.cover_url,
+      genres: r.album.genres || [], score: r.score, rated_at: r.updated_at, has_review: !!(r.credit_profile && r.is_public && r.thoughts?.trim()), body: r.thoughts }));
+    return {
+      pins: pins.filter((x) => x.album).map((x) => ({ position: x.position, album_id: x.album.id, title: x.album.title, artist: x.album.artist, cover_url: x.album.cover_url })),
+      ratings: rs,
+      reviews: rs.filter((r) => r.has_review).map((r) => ({ ...r, updated_at: r.rated_at })),
+      lists: lists.map((l) => { const items = [...(l.list_items || [])].filter((i) => i.album).sort((a, b) => a.position - b.position);
+        return { id: l.id, title: l.title, description: l.description, is_public: l.is_public, item_count: items.length, covers: items.slice(0, 4).map((i) => i.album.cover_url) }; }),
+    };
+  }
+  const [pins, ratings, reviews, lists] = await Promise.all([
+    q(sb.from("public_pins").select("*").eq("username", u).order("position")),
+    p.show_ratings ? q(sb.from("public_ratings").select("*").eq("username", u).order("rated_at", { ascending: false }).limit(300)) : [],
+    q(sb.from("public_reviews").select("*").eq("username", u).order("updated_at", { ascending: false }).limit(50)),
+    q(sb.from("public_lists").select("*").eq("username", u).order("updated_at", { ascending: false })),
+  ]);
+  return { pins, ratings, reviews, lists };
+}
+
+// Favorite genres and artists, only from ratings that are actually shown, and only once there is enough to say something
+function tasteOf(ratings) {
+  if (ratings.length < 5) return null;
+  const g = new Map(), a = new Map();
+  ratings.forEach((r) => {
+    (r.genres || []).slice(0, 2).forEach((n) => { const x = g.get(n) || { n: 0, sum: 0 }; x.n++; x.sum += r.score; g.set(n, x); });
+    const x = a.get(r.artist) || { n: 0, sum: 0 }; x.n++; x.sum += r.score; a.set(r.artist, x);
+  });
+  const genres = [...g].filter(([, v]) => v.n >= 2).sort((x, y) => y[1].sum - x[1].sum).slice(0, 3).map(([n]) => n);
+  const artists = [...a].filter(([, v]) => v.n >= 2).sort((x, y) => y[1].sum / y[1].n - x[1].sum / x[1].n || y[1].n - x[1].n).slice(0, 3).map(([n]) => n);
+  return genres.length || artists.length ? { genres, artists } : null;
+}
+
+let ptab = "ratings", psort = "recent";
+async function renderPublicProfile(username) {
+  username = username.toLowerCase();
+  view().innerHTML = `${profileHeader({ initial: "", name: "Loading profile…" })}${skList(4)}`;
+  const own = !!profile && profile.username === username;
+  let p = null, counts = null;
+  if (sb) {
+    const { data, error } = await sb.from("public_profiles").select("*").eq("username", username).maybeSingle();
+    if (error && !own) { view().innerHTML = errorState({ title: "Couldn't load this profile", retry: () => renderPublicProfile(username), compact: false }); return; }
+    counts = data;
+    p = own ? profile : data;
+  }
+  if (!p) {
+    view().innerHTML = emptyState({ iconName: "user", title: "Profile not found", body: "This profile doesn't exist, or its owner keeps it private.",
+      actions: button("Go home", { variant: "primary", href: "#/" }), compact: false });
+    return;
+  }
+  document.title = `${p.display_name || p.username} (@${p.username}) · Rotation`;
+  const d = await loadProfileData(p, own);
+  let following = false, followers = counts?.followers || 0;
+  if (!own && user && sb) { const { data } = await sb.rpc("is_following", { p_username: username }); following = !!data; }
+
+  const ratingsVisible = own || p.show_ratings;
+  const avg = own ? (d.ratings.length ? (d.ratings.reduce((s, r) => s + r.score, 0) / d.ratings.length).toFixed(1) : null) : p.avg_score;
+  const reviewCount = own ? d.reviews.length : p.review_count;
+  const stats = [
+    { label: "Albums rated", value: ratingsVisible ? (own ? d.ratings.length : p.rating_count) : "Private" },
+    ...(ratingsVisible && avg != null ? [{ label: "Average score", value: avg }] : []),
+    { label: "Written reviews", value: reviewCount ?? 0 },
+    { label: "Followers", value: followers, id: "stFollowers" }, { label: "Following", value: counts?.following || 0 },
+  ];
+  const actions = own
+    ? `${button("Edit profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}`
+    : `<button type="button" class="btn btn--sm${following ? "" : " btn--primary"}" id="followBtn" aria-pressed="${following}">${icon(following ? "check" : "user")}<span>${following ? "Following" : "Follow"}</span></button>${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}`;
+  const taste = ratingsVisible ? tasteOf(d.ratings) : null;
+
+  const draw = () => {
+    let body = "";
+    if (ptab === "ratings") {
+      if (!ratingsVisible) body = emptyState({ iconName: "user", compact: true, title: "Ratings are private", body: `${p.display_name || "@" + p.username} keeps their ratings to themselves.` });
+      else if (!d.ratings.length) body = emptyState({ iconName: "disc", compact: true, title: own ? "Nothing rated yet" : "No ratings yet",
+        body: own ? "Score an album and it lands in your grid." : "Check back once they've rated something.", actions: own ? button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) : "" });
+      else {
+        const list = [...d.ratings].sort(psort === "top" ? (a, b) => b.score - a.score || String(b.rated_at).localeCompare(String(a.rated_at)) : (a, b) => String(b.rated_at).localeCompare(String(a.rated_at)));
+        body = `<div class="chips" role="group" aria-label="Sort ratings" style="margin-bottom:var(--s-5)">
+            <button type="button" class="chip" data-sort="recent" aria-pressed="${psort === "recent"}">Recently rated</button>
+            <button type="button" class="chip" data-sort="top" aria-pressed="${psort === "top"}">Highest scores</button></div>
+          <div class="tiles">${list.map((r) => tile({ href: `#/album/${r.album_id}`, art: r.cover_url, title: r.title, artist: r.artist, score: r.score, mine: own, note: r.has_review ? "Review" : "" })).join("")}</div>
+          ${d.ratings.length >= 300 ? `<p class="t-meta" style="margin-top:var(--s-4)">Showing the 300 most recent ratings.</p>` : ""}`;
+      }
+    } else if (ptab === "reviews") {
+      body = d.reviews.length ? `<div class="reviews">${d.reviews.map((r) => `<article class="review-card">
+          <header class="review-card__head">${artwork(smallArt(r.cover_url), r.title, "thumb")}
+            <span class="review-card__who"><a href="#/album/${r.album_id}"><strong>${esc(r.title)}</strong></a><span class="t-meta">${esc(r.artist || "")} · Reviewed ${fmtDate(String(r.updated_at).slice(0, 10), "short")}</span></span>
+            ${scoreChip(r.score, { mine: own })}</header>
+          <p class="review-card__body">${esc(r.body)}</p></article>`).join("")}</div>`
+        : emptyState({ iconName: "note", compact: true, title: "No shared reviews", body: own ? "Write a review on an album page, share it, and credit it to your profile." : "Written reviews they choose to share appear here." });
+    } else {
+      body = d.lists.length ? `<div class="listtiles">${d.lists.map((l) => listTile(l, own)).join("")}</div>`
+        : emptyState({ iconName: "list", compact: true, title: own ? "No lists yet" : "No public lists", body: own ? "Group albums into lists, then make them public to show them here." : "Lists they make public appear here.",
+            actions: own ? button("Create a list", { variant: "primary", href: "#/lists/yours" }) : "" });
+    }
+    $("#pbody").innerHTML = `${tabs([["ratings", `Ratings${ratingsVisible ? ` (${d.ratings.length})` : ""}`], ["reviews", `Reviews (${d.reviews.length})`], ["lists", `Lists (${d.lists.length})`]], ptab, "Profile sections")}${body}`;
+    $$("#pbody [data-tab]").forEach((b) => b.onclick = () => { ptab = b.dataset.tab; draw(); });
+    $$("#pbody [data-sort]").forEach((b) => b.onclick = () => { psort = b.dataset.sort; draw(); });
+  };
+
+  view().innerHTML = `
+    ${profileHeader({ avatar: avatarHTML(p, "lg"), eyebrow: `@${p.username}${p.created_at ? ` · Joined ${fmtDate(String(p.created_at).slice(0, 7))}` : ""}`,
+      name: p.display_name || p.username, stats,
+      extra: `${p.bio ? `<p class="profile__bio">${esc(p.bio)}</p>` : ""}<div class="chips" style="margin-top:var(--s-4)">${actions}</div>` })}
+    ${own && !p.is_public ? `<p class="alert alert--warning" role="status" style="margin-bottom:var(--s-8)">${icon("alert")}<span>Only you can see this profile. Make it public in Edit profile to share the link.</span></p>` : ""}
+    ${d.pins.length || own ? `<section class="section">${sectionHead("Favorite albums", { sub: d.pins.length ? "" : "Pin up to six albums from any album page.", link: own ? "#/me/edit" : null, linkLabel: "Manage" })}
+      ${d.pins.length ? `<div class="tiles tiles--pins">${d.pins.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist })).join("")}</div>` : ""}</section>` : ""}
+    ${taste ? `<section class="section">${sectionHead("Taste", { sub: "From the ratings shown on this profile" })}<div class="chips">
+      ${taste.genres.map((n) => { const g = matchGenre(n); return g ? `<a class="chip" href="#/genre/${g.slug}">${esc(n)}</a>` : `<span class="chip chip--static">${esc(n)}</span>`; }).join("")}
+      ${taste.artists.map((n) => `<a class="chip" href="#/find-artist/${encodeURIComponent(n)}">${icon("user")}${esc(n)}</a>`).join("")}</div></section>` : ""}
+    <div id="pbody"></div>`;
+  draw();
+
+  $("#shareProfile").onclick = async () => {
+    const data = { title: `${p.display_name || p.username} on Rotation`, url: profileUrl(p.username) };
+    if (!own || p.is_public) { if (navigator.share) { try { await navigator.share(data); } catch {} return; } }
+    else return toast("This profile is private. Make it public before sharing the link.", "info");
+    try { await navigator.clipboard.writeText(data.url); toast("Link copied"); } catch { toast("Copy the link from your address bar", "info"); }
+  };
+  const fb = $("#followBtn");
+  if (fb) fb.onclick = async () => {
+    if (!user) return openAuth();
+    fb.setAttribute("aria-busy", "true");
+    const { error } = await sb.rpc(following ? "unfollow_user" : "follow_user", { p_username: username });
+    fb.removeAttribute("aria-busy");
+    if (error) return toast(apiError(error), "error");
+    following = !following; followers += following ? 1 : -1;
+    fb.setAttribute("aria-pressed", String(following));
+    fb.classList.toggle("btn--primary", !following);
+    fb.innerHTML = `${icon(following ? "check" : "user")}<span>${following ? "Following" : "Follow"}</span>`;
+    $("#stFollowers").textContent = followers;
+    toast(following ? `Following @${username}` : `Unfollowed @${username}`, following ? "success" : "info");
+  };
+}
+
+/* ---------- Create / edit your profile ---------- */
+async function renderProfileEdit() {
+  document.title = "Edit profile · Rotation";
+  if (!sb || !user) {
+    view().innerHTML = emptyState({ iconName: "user", title: "Sign in to set up your profile", body: "Your profile is private until you choose to make it public.",
+      actions: button("Sign in", { variant: "primary", id: "editSignIn" }) });
+    $("#editSignIn")?.addEventListener("click", openAuth);
+    return;
+  }
+  view().innerHTML = `${loadingLabel("Loading profile")}${skList(4)}`;
+  const { data: pinRows } = await sb.from("profile_pins").select("position, album:albums(id,title,artist,cover_url)").order("position");
+  let pins = (pinRows || []).filter((x) => x.album);
+  const p = profile || { username: "", display_name: "", bio: "", is_public: false, show_ratings: true, avatar_album_id: null };
+  let avatarId = p.avatar_album_id;
+
+  const pinsHTML = () => pins.length ? `<ol class="pinlist">${pins.map((x, i) => `<li class="pinlist__row">
+      ${artwork(smallArt(x.album.cover_url), x.album.title, "thumb")}
+      <span class="pinlist__text"><strong>${esc(x.album.title)}</strong><span class="t-meta">${esc(x.album.artist)}</span></span>
+      <label class="pinlist__avatar"><input type="radio" name="avatar" value="${esc(x.album.id)}"${avatarId === x.album.id ? " checked" : ""}><span>Avatar</span></label>
+      <button type="button" class="icon-btn" data-pin="up" data-i="${i}" aria-label="Move ${esc(x.album.title)} up"${i === 0 ? " disabled" : ""}>${icon("up")}</button>
+      <button type="button" class="icon-btn" data-pin="down" data-i="${i}" aria-label="Move ${esc(x.album.title)} down"${i === pins.length - 1 ? " disabled" : ""}>${icon("down")}</button>
+      <button type="button" class="icon-btn" data-pin="remove" data-i="${i}" aria-label="Unpin ${esc(x.album.title)}">${icon("close")}</button></li>`).join("")}</ol>`
+    : emptyState({ iconName: "star", compact: true, plain: true, title: "No pinned albums", body: "Open any album and choose Pin to profile. You can pin up to six." });
+
+  view().innerHTML = `
+    <header class="page-head"><h1 class="t-page">${profile ? "Edit profile" : "Create your profile"}</h1>
+      <p class="t-lead">Your profile is private until you make it public. Your email is never shown.</p></header>
+    <form id="pform" class="form" novalidate>
+      <label class="field"><span class="field__label">Username</span>
+        <input id="pUser" class="input" maxlength="20" value="${esc(p.username)}" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="uHint">
+        <span class="field__hint" id="uHint">3 to 20 lowercase letters, numbers or underscores. Your link: ${esc(location.origin + location.pathname)}#/u/<strong id="uPrev">${esc(p.username || "username")}</strong></span></label>
+      <label class="field"><span class="field__label">Display name <span class="t-meta">Optional</span></span>
+        <input id="pName" class="input" maxlength="40" value="${esc(p.display_name || "")}" autocomplete="off"></label>
+      <label class="field"><span class="field__label">Bio <span class="t-meta">Optional</span></span>
+        <textarea id="pBio" class="textarea" maxlength="280" style="min-height:96px" placeholder="What do you listen for?">${esc(p.bio || "")}</textarea>
+        <span class="field__hint"><span id="bioCount">${(p.bio || "").length}</span>/280</span></label>
+      <fieldset class="fieldset"><legend class="field__label">Privacy</legend>
+        <label class="check"><input type="checkbox" id="pPublic"${p.is_public ? " checked" : ""}><span>Make my profile public. Anyone with the link can see it, and people can follow me.</span></label>
+        <label class="check"><input type="checkbox" id="pShow"${p.show_ratings ? " checked" : ""}><span>Show my ratings on my public profile. Turn this off to keep scores private while the rest stays public.</span></label>
+        <span class="field__hint">Your listening status, private notes and unshared reviews are never shown to anyone else.</span></fieldset>
+      <fieldset class="fieldset"><legend class="field__label">Pinned favorites and avatar</legend>
+        <div id="pinsBox">${pinsHTML()}</div>
+        <label class="check" style="margin-top:var(--s-3)"><input type="radio" name="avatar" value=""${avatarId ? "" : " checked"}><span>Use my initial as my avatar</span></label></fieldset>
+      <p id="pError" class="alert alert--error" role="alert" hidden></p>
+      <div class="save-bar" style="margin-top:0">
+        <button type="submit" class="btn btn--primary" id="pSave"><span>${profile ? "Save profile" : "Create profile"}</span></button>
+        ${profile ? `<a class="btn btn--ghost" href="${profileHref(profile.username)}">Cancel</a>` : ""}</div>
+    </form>`;
+
+  $("#pUser").addEventListener("input", (e) => { $("#uPrev").textContent = e.target.value.trim().toLowerCase() || "username"; });
+  $("#pBio").addEventListener("input", (e) => { $("#bioCount").textContent = e.target.value.length; });
+  $("#pform").addEventListener("change", (e) => { if (e.target.name === "avatar") avatarId = e.target.value || null; });
+  const repaintPins = () => { $("#pinsBox").innerHTML = pinsHTML(); };
+  $("#pinsBox").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-pin]"); if (!b) return;
+    const i = +b.dataset.i, op = b.dataset.pin;
+    if (op === "remove") {
+      const { error } = await sb.from("profile_pins").delete().eq("album_id", pins[i].album.id);
+      if (error) return toast(`Couldn't unpin: ${apiError(error)}`, "error");
+      if (avatarId === pins[i].album.id) avatarId = null;
+      pins.splice(i, 1);
+    } else {
+      const j = op === "up" ? i - 1 : i + 1;
+      if (j < 0 || j >= pins.length) return;
+      const [a, c] = [pins[i], pins[j]];
+      const { error } = await sb.from("profile_pins").upsert([{ album_id: a.album.id, position: c.position }, { album_id: c.album.id, position: a.position }], { onConflict: "user_id,album_id" });
+      if (error) return toast(`Couldn't reorder: ${apiError(error)}`, "error");
+      pins[i] = { ...c, position: a.position }; pins[j] = { ...a, position: c.position };
+    }
+    repaintPins();
+  });
+  $("#pform").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#pError"), btn = $("#pSave");
+    err.hidden = true;
+    const username = $("#pUser").value.trim().toLowerCase();
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) { err.textContent = "Usernames are 3 to 20 lowercase letters, numbers or underscores."; err.hidden = false; $("#pUser").focus(); return; }
+    btn.setAttribute("aria-busy", "true");
+    const row = { user_id: user.id, username, display_name: $("#pName").value.trim() || null, bio: $("#pBio").value.trim() || null,
+      is_public: $("#pPublic").checked, show_ratings: $("#pShow").checked, avatar_album_id: avatarId || null };
+    const { data, error } = await sb.from("profiles").upsert(row, { onConflict: "user_id" }).select("*, albums(cover_url)").single();
+    btn.removeAttribute("aria-busy");
+    if (error) {
+      err.textContent = error.code === "23505" ? "That username is taken. Try another."
+        : error.code === "23514" ? "That username isn't allowed. Use 3 to 20 lowercase letters, numbers or underscores, and avoid reserved words."
+        : `Couldn't save: ${apiError(error)}`;
+      err.hidden = false; return;
+    }
+    profile = { ...data, avatar_cover: data.albums?.cover_url || null };
+    renderAccount();
+    toast(profile.is_public ? "Profile saved" : "Profile saved. It's private until you make it public.");
+    location.hash = profileHref(profile.username);
+  });
+}
+
+/* ---------- Lists ---------- */
+const profileNeedsPublic = () => profile && !profile.is_public;
+function listForm(l = {}) {
+  return `<label class="field"><span class="field__label">Title</span><input id="lTitle" class="input" maxlength="80" value="${esc(l.title || "")}" required></label>
+    <label class="field"><span class="field__label">Description <span class="t-meta">Optional</span></span><textarea id="lDesc" class="textarea" maxlength="500" style="min-height:80px">${esc(l.description || "")}</textarea></label>
+    <label class="check"><input type="checkbox" id="lPublic"${l.is_public ? " checked" : ""}><span>Public. Shows on my public profile${profile?.is_public ? "." : " once my profile is public."}</span></label>`;
+}
+async function renderMyLists(el) {
+  if (!sb || !user) {
+    el.innerHTML = emptyState({ iconName: "user", title: "Your lists live here", body: "Sign in to make lists of albums, like a top ten of the year.", actions: button("Sign in", { variant: "primary", id: "listSignIn2" }) });
+    $("#listSignIn2")?.addEventListener("click", openAuth);
+    return;
+  }
+  const { data, error } = await sb.from("lists").select("id, title, is_public, list_items(position, album:albums(cover_url))").order("updated_at", { ascending: false });
+  if (error) { el.innerHTML = errorState({ title: "Couldn't load your lists", retry: () => renderMyLists(el), compact: false }); return; }
+  const lists = (data || []).map((l) => { const items = [...(l.list_items || [])].filter((i) => i.album).sort((a, b) => a.position - b.position);
+    return { id: l.id, title: l.title, is_public: l.is_public, item_count: items.length, covers: items.slice(0, 4).map((i) => i.album.cover_url) }; });
+  el.innerHTML = `<form id="newList" class="form panel" novalidate><h2 class="t-section">New list</h2>${listForm()}
+      <p id="lError" class="alert alert--error" role="alert" hidden></p>
+      <div><button type="submit" class="btn btn--primary" id="lSave"><span>Create list</span></button></div></form>
+    <section class="section" style="margin-top:var(--s-10)">${sectionHead("Your lists", { sub: lists.length ? plural(lists.length, "list") : "" })}
+      ${lists.length ? `<div class="listtiles">${lists.map((l) => listTile(l, true)).join("")}</div>` : emptyState({ iconName: "list", compact: true, title: "No lists yet", body: "Create one above, then add albums from any album page." })}</section>`;
+  $("#newList").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = $("#lTitle").value.trim(), err = $("#lError");
+    if (!title) { err.textContent = "Give your list a title."; err.hidden = false; return; }
+    const btn = $("#lSave"); btn.setAttribute("aria-busy", "true"); err.hidden = true;
+    const { data: row, error: e2 } = await sb.from("lists").insert({ title, description: $("#lDesc").value.trim() || null, is_public: $("#lPublic").checked }).select("id").single();
+    btn.removeAttribute("aria-busy");
+    if (e2) { err.textContent = `Couldn't create the list: ${apiError(e2)}`; err.hidden = false; return; }
+    location.hash = `#/list/${row.id}`;
+  });
+}
+
+async function renderList(id) {
+  view().innerHTML = `${loadingLabel("Loading list")}<div class="page-head"><div class="sk sk-line" style="height:40px;width:50%"></div></div>${skList(5)}`;
+  let list = null, own = false;
+  if (sb && user) { const { data } = await sb.from("lists").select("*").eq("id", id).maybeSingle(); if (data) { list = data; own = true; } }
+  if (!list && sb) { const { data } = await sb.from("public_lists").select("*").eq("id", id).maybeSingle(); list = data; }
+  if (!list) {
+    view().innerHTML = emptyState({ iconName: "list", title: "List not found", body: "This list doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "#/" }), compact: false });
+    return;
+  }
+  let items = [];
+  if (own) {
+    const { data } = await sb.from("list_items").select("position, album:albums(id,title,artist,cover_url)").eq("list_id", id).order("position");
+    items = (data || []).filter((x) => x.album).map((x) => ({ position: x.position, album_id: x.album.id, title: x.album.title, artist: x.album.artist, cover_url: x.album.cover_url }));
+  } else {
+    const { data } = await sb.from("public_list_items").select("*").eq("list_id", id).order("position");
+    items = data || [];
+  }
+  document.title = `${list.title} · Rotation`;
+
+  const rowsHTML = () => items.length ? `<ol class="entries">${items.map((x, i) => `<li class="entry">
+      <span class="entry__rank">${i + 1}</span>
+      <a class="entry__link" href="#/album/${x.album_id}">${artwork(smallArt(x.cover_url), `${x.title} by ${x.artist}`, "thumb")}
+        <span class="list-card__text"><span class="list-card__title">${esc(x.title)}</span><span class="list-card__sub">${esc(x.artist || "")}</span></span></a>
+      ${own ? `<span class="entry__actions">
+        <button type="button" class="icon-btn" data-op="up" data-i="${i}" aria-label="Move ${esc(x.title)} up"${i === 0 ? " disabled" : ""}>${icon("up")}</button>
+        <button type="button" class="icon-btn" data-op="down" data-i="${i}" aria-label="Move ${esc(x.title)} down"${i === items.length - 1 ? " disabled" : ""}>${icon("down")}</button>
+        <button type="button" class="icon-btn" data-op="remove" data-i="${i}" aria-label="Remove ${esc(x.title)} from the list">${icon("close")}</button></span>` : ""}</li>`).join("")}</ol>`
+    : emptyState({ iconName: "disc", compact: true, title: "No albums yet", body: own ? "Open any album and choose Add to list." : "This list is empty.",
+        actions: own ? button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) : "" });
+
+  const head = () => `<header class="page-head">
+      <p class="t-meta">${own ? "Your list" : `List by <a href="${profileHref(list.username)}">@${esc(list.username)}</a>`}${own ? (list.is_public ? " · Public" : " · Private") : ""}</p>
+      <h1 class="t-title">${esc(list.title)}</h1>
+      ${list.description ? `<p class="t-lead">${esc(list.description)}</p>` : ""}
+      <div class="chips">${own ? `${button("Edit list", { size: "sm", id: "editList", iconName: "note" })}` : ""}${button("Share", { size: "sm", id: "shareList", iconName: "share" })}</div>
+      ${own && list.is_public && profileNeedsPublic() ? `<p class="alert alert--warning" role="status">${icon("alert")}<span>This list is public, but your profile is private, so nobody else can see it. <a href="#/me/edit" style="text-decoration:underline">Make your profile public</a>.</span></p>` : ""}
+      ${own && list.is_public && !profile ? `<p class="alert alert--warning" role="status">${icon("alert")}<span>Create a public profile so others can find this list. <a href="#/me/edit" style="text-decoration:underline">Set up profile</a>.</span></p>` : ""}
+    </header>`;
+  const paint = () => { view().innerHTML = `${head()}<div id="entries">${rowsHTML()}</div><div id="editBox"></div>`; wire(); };
+
+  const swap = async (i, j) => {
+    const a = items[i], b = items[j];
+    const { error } = await sb.from("list_items").upsert([{ list_id: id, album_id: a.album_id, position: b.position }, { list_id: id, album_id: b.album_id, position: a.position }], { onConflict: "list_id,album_id" });
+    if (error) return toast(`Couldn't reorder: ${apiError(error)}`, "error");
+    items[i] = { ...b, position: a.position }; items[j] = { ...a, position: b.position };
+    $("#entries").innerHTML = rowsHTML();
+  };
+  function wire() {
+    $("#shareList").onclick = async () => {
+      const data = { title: list.title, text: `${list.title} on Rotation`, url: location.href };
+      if (navigator.share && (!own || list.is_public)) { try { await navigator.share(data); } catch {} return; }
+      try { await navigator.clipboard.writeText(location.href); toast(own && !list.is_public ? "Link copied. Only you can open it until the list is public." : "Link copied"); } catch { toast("Copy the link from your address bar", "info"); }
+    };
+    if (!own) return;
+    $("#entries").addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-op]"); if (!b) return;
+      const i = +b.dataset.i, op = b.dataset.op;
+      if (op === "remove") {
+        const { error } = await sb.from("list_items").delete().eq("list_id", id).eq("album_id", items[i].album_id);
+        if (error) return toast(`Couldn't remove: ${apiError(error)}`, "error");
+        items.splice(i, 1); $("#entries").innerHTML = rowsHTML(); toast("Removed from list", "info");
+      } else swap(i, op === "up" ? i - 1 : i + 1);
+    });
+    $("#editList").onclick = () => {
+      $("#editBox").innerHTML = `<form id="editForm" class="form panel" novalidate style="margin-top:var(--s-8)"><h2 class="t-section">Edit list</h2>${listForm(list)}
+        <p id="lError" class="alert alert--error" role="alert" hidden></p>
+        <div class="save-bar" style="margin-top:0"><button type="submit" class="btn btn--primary" id="lSave"><span>Save list</span></button>
+        <button type="button" class="btn btn--ghost" id="lCancel">Cancel</button>
+        <button type="button" class="btn btn--ghost" id="lDelete" data-danger="1">Delete list</button></div></form>`;
+      $("#lTitle").focus();
+      $("#lCancel").onclick = () => { $("#editBox").innerHTML = ""; };
+      $("#lDelete").onclick = async () => {
+        if (!confirm(`Delete “${list.title}”? The albums stay in Rotation; only the list is removed.`)) return;
+        const { error } = await sb.from("lists").delete().eq("id", id);
+        if (error) return toast(`Couldn't delete: ${apiError(error)}`, "error");
+        toast("List deleted", "info"); location.hash = "#/lists/yours";
+      };
+      $("#editForm").onsubmit = async (e) => {
+        e.preventDefault();
+        const title = $("#lTitle").value.trim(), err = $("#lError");
+        if (!title) { err.textContent = "Give your list a title."; err.hidden = false; return; }
+        const btn = $("#lSave"); btn.setAttribute("aria-busy", "true"); err.hidden = true;
+        const { data, error } = await sb.from("lists").update({ title, description: $("#lDesc").value.trim() || null, is_public: $("#lPublic").checked }).eq("id", id).select("*").single();
+        btn.removeAttribute("aria-busy");
+        if (error) { err.textContent = `Couldn't save: ${apiError(error)}`; err.hidden = false; return; }
+        list = data; document.title = `${list.title} · Rotation`; paint(); toast("List saved");
+      };
+    };
+  }
+  paint();
+}
+
+// "Add to list" dialog on the album page
+async function openListPicker(album, ensureAlbum) {
+  const dlg = document.createElement("dialog");
+  dlg.className = "dialog";
+  dlg.setAttribute("aria-labelledby", "lpTitle");
+  dlg.innerHTML = `<div class="dialog__body"><div class="dialog__head"><h2 class="dialog__title" id="lpTitle">Add to list</h2>
+    <button type="button" class="icon-btn" data-close aria-label="Close">${icon("close")}</button></div><div id="lpBody">${loadingLabel("Loading your lists")}<div class="sk" style="height:96px"></div></div></div>`;
+  document.body.appendChild(dlg);
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.addEventListener("click", (e) => { if (e.target === dlg || e.target.closest("[data-close]")) dlg.close(); });
+  dlg.showModal();
+  const body = $("#lpBody", dlg);
+  const load = async () => {
+    const { data, error } = await sb.from("lists").select("id, title, is_public, list_items(album_id)").order("updated_at", { ascending: false });
+    if (error) { body.innerHTML = errorState({ title: "Couldn't load your lists", retry: load }); return; }
+    body.innerHTML = `${data.length ? `<ul class="picklist">${data.map((l) => { const has = (l.list_items || []).some((i) => i.album_id === album.id);
+        return `<li><label class="check"><input type="checkbox" data-list="${l.id}"${has ? " checked" : ""}><span>${esc(l.title)} <span class="t-meta">${l.is_public ? "Public" : "Private"}</span></span></label></li>`; }).join("")}</ul>`
+      : `<p class="text-2" style="font-size:var(--fs-sm)">You don't have any lists yet. Make your first one below.</p>`}
+      <form id="lpNew" class="lp-new" novalidate><input class="input" id="lpTitleInput" maxlength="80" placeholder="New list title" aria-label="New list title">
+        <button type="submit" class="btn btn--primary btn--sm"><span>Create and add</span></button></form>`;
+    $$("input[data-list]", body).forEach((cb) => cb.addEventListener("change", async () => {
+      cb.disabled = true;
+      let error = await ensureAlbum();
+      if (!error) ({ error } = cb.checked
+        ? await sb.from("list_items").insert({ list_id: cb.dataset.list, album_id: album.id })
+        : await sb.from("list_items").delete().eq("list_id", cb.dataset.list).eq("album_id", album.id));
+      cb.disabled = false;
+      if (error) { cb.checked = !cb.checked; return toast(`Couldn't update the list: ${apiError(error)}`, "error"); }
+      toast(cb.checked ? "Added to list" : "Removed from list", cb.checked ? "success" : "info");
+    }));
+    $("#lpNew", body).addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const title = $("#lpTitleInput", body).value.trim(); if (!title) return;
+      let error = await ensureAlbum(), row = null;
+      if (!error) ({ data: row, error } = await sb.from("lists").insert({ title }).select("id").single());
+      if (!error) ({ error } = await sb.from("list_items").insert({ list_id: row.id, album_id: album.id }));
+      if (error) return toast(`Couldn't create the list: ${apiError(error)}`, "error");
+      toast("List created and album added"); load();
+    });
+  };
+  load();
+}
+
+/* ==========================================================================
    Router and nav
    ========================================================================== */
 function route() {
   const h = location.hash || "#/";
   window.scrollTo(0, 0);
   $("#nav").classList.remove("is-tucked");
-  const section = h.startsWith("#/me") ? "me" : /^#\/(genre|genres|explore|decade)\b/.test(h) ? "explore" : h.startsWith("#/lists") ? "lists"
+  const own = profile && h.toLowerCase() === `#/u/${profile.username}`;
+  const section = h.startsWith("#/me") || own ? "me" : /^#\/(genre|genres|explore|decade)\b/.test(h) ? "explore" : /^#\/lists?\b/.test(h) ? "lists"
     : h.startsWith("#/search") ? "search" : h === "#/" || h === "#" ? "discover" : "";
   $$("[data-nav]").forEach((a) => (a.dataset.nav === section ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
   let m;
@@ -1447,6 +1937,9 @@ function route() {
   if ((m = h.match(/^#\/find-artist\/(.+)$/))) return resolveArtist(decodeURIComponent(m[1]));
   if ((m = h.match(/^#\/find\/([^/]+)\/(.+)$/))) return resolveFind(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
   if ((m = h.match(/^#\/genre\/([a-z-]+)/))) return renderGenre(m[1]);
+  if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})$/i))) return renderPublicProfile(m[1]);
+  if ((m = h.match(/^#\/list\/([0-9a-f-]{36})$/i))) return renderList(m[1]);
+  if (h === "#/me/edit") return renderProfileEdit();
   if ((m = h.match(/^#\/decade\/(\d{4})$/))) return renderDecade(+m[1]);
   if ((m = h.match(/^#\/lists(?:\/([a-z]+))?$/))) return renderLists(m[1]);
   if ((m = h.match(/^#\/search(?:\/(.*))?$/))) return renderSearch(m[1] ? decodeURIComponent(m[1]) : "");
@@ -1474,11 +1967,12 @@ $("#tabbar").innerHTML = [["discover", "#/", "Discover", "compass"], ["explore",
   if (sb) {
     const { data } = await sb.auth.getSession();
     user = data.session?.user || null;
+    await loadProfile();
     sb.auth.onAuthStateChange((_e, session) => {
       const changed = (session?.user?.id || null) !== (user?.id || null);
       user = session?.user || null;
-      renderAccount();
-      if (changed) route();
+      // Deferred: calling Supabase from inside this callback can deadlock the auth client
+      setTimeout(async () => { if (changed) await loadProfile(); renderAccount(); if (changed) route(); }, 0);
     });
   }
   renderAccount();

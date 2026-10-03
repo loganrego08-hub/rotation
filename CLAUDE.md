@@ -23,6 +23,12 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - `MIN_RATINGS` (3) gates "Highest rated"; "Under the radar" is 8+ with fewer than that.
 - `schema.sql` v3 adds views `album_activity` (7-day counts) and `recent_ratings` (scores only, no notes or user ids).
   The app treats missing views as empty, so run v3 in the Supabase SQL editor to switch Trending and Recently Reviewed to live data.
+- Profiles (schema v6): `#/u/<username>` public profile, `#/me/edit` create/edit, `#/me` is the private shelf/history, `#/list/<uuid>` lists.
+  PRIVACY RULE: base tables (profiles, profile_pins, follows, lists, list_items, ratings, album_status) are owner-only via RLS.
+  Anything another person sees must come from a `public_*` view, which only returns rows for profiles with `is_public`.
+  Never add user_id or email to a public view. Profiles start private; ratings can be hidden with `show_ratings`; a shared review
+  appears on a profile only if the writer ticked "credit to profile" (`ratings.credit_profile`). Follow/unfollow go through RPCs only.
+  Avatars are the cover of a chosen pinned album (or an initial); there is no file upload.
 - Rating scale: whole scores 1-10 (not stars); this is the established convention (DB check, charts, recommendations all use it).
   Tapping a score saves immediately (score only, so reviews are never clobbered); the review/standouts have their own Save.
   Never put `updated_at` in client writes; triggers own timestamps. Duplicates are impossible (unique user_id+album_id upsert).
