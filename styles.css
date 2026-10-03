@@ -789,3 +789,19 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 /* Longer explanations (why a pick was recommended) wrap instead of being cut off */
 .meta--wrap { align-items: flex-start; }
 .meta--wrap span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* Footer and attribution */
+.site-footer { max-width: var(--page); margin: 0 auto; padding: var(--s-6) var(--gutter) var(--s-10); border-top: 1px solid var(--border); color: var(--text-3); font-size: var(--fs-xs); line-height: var(--lh-body); }
+.site-footer p { max-width: 80ch; }
+.site-footer a { text-decoration: underline; text-underline-offset: 3px; }
+.site-footer a:hover { color: var(--text-2); }
+@media (max-width: 860px) { .site-footer { padding-bottom: calc(var(--tabbar-h) + var(--s-8) + env(safe-area-inset-bottom, 0px)); } main { padding-bottom: var(--s-8); } }
+/* Touch targets: at least 44px tall for links and labels that were smaller */
+.wordmark { display: inline-flex; align-items: center; min-height: 44px; }
+.section__link { min-height: 44px; display: inline-flex; align-items: center; padding-inline: var(--s-2); margin-right: calc(-1 * var(--s-2)); }
+.check { min-height: 44px; align-items: center; }
+@media (hover: none) { .chip { height: 36px; } .btn--sm { height: 36px; } }
+/* Tablet: stack the album page (artwork above details) so the rating controls keep their width */
+@media (max-width: 960px) {
+  .album { grid-template-columns: minmax(0, 1fr); gap: var(--s-6); }
+  .album__art { position: static; width: min(100%, 360px); margin-inline: auto; }
+}

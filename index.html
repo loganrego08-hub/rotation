@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#171717">
 <title>Rotation</title>
+<meta name="description" content="Rotation: score albums out of 10, star standout tracks, keep lists and see where everyone else lands.">
+<meta property="og:site_name" content="Rotation">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Rotation">
+<meta property="og:description" content="Score albums out of 10, star standout tracks, keep lists and see where everyone else lands.">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="https://rotation-ten.vercel.app/">
+<link rel="preconnect" href="https://coverartarchive.org" crossorigin>
+<link rel="preconnect" href="https://musicbrainz.org" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
@@ -30,7 +39,11 @@
 
 <main id="view" tabindex="-1"></main>
 
-<nav class="tabbar" id="tabbar" aria-label="Main"></nav>
+<footer class="site-footer">
+  <p>Album data from <a href="https://musicbrainz.org" rel="noopener">MusicBrainz</a> (CC0). Cover art from the <a href="https://coverartarchive.org" rel="noopener">Cover Art Archive</a> and Apple, shown for identification and owned by its copyright holders. Charts from Billboard. Rotation doesn't track listening, only ratings.</p>
+</footer>
+
+<nav class="tabbar" id="tabbar" aria-label="Primary, mobile"></nav>
 
 <dialog id="authDialog" class="dialog" aria-labelledby="authTitle">
   <form id="authForm" method="dialog" class="dialog__body">

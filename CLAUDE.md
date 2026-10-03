@@ -51,6 +51,13 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   The PNG export is drawn on a canvas as text and charts only: album artwork is never copied into exported files (rights holders' artwork).
 - Recommendations (`buildRecs`): explainable rules (similar listeners, artists, genres, charts), never includes rated albums; under 3 ratings it shows
   general discovery labeled as such. `recs_from_similar_listeners` (schema v9) returns aggregates only, needs 2+ similar listeners.
+- Quality rules: every page gets a title + description via `setPageMeta` (hash URLs mean non-script crawlers only see index.html defaults; real SEO
+  would need path routing plus server-rendered pages, a bigger change), a top-level h1 (a MutationObserver adds a hidden one when missing), and an
+  error boundary (`route` wraps `routeInner`). Touch targets are at least 44px on touch devices. The album page stacks below 960px.
+- Sources and rights: MusicBrainz metadata is CC0. Cover art is hot-linked from the Cover Art Archive and Apple for identification only, never downloaded,
+  re-hosted or put into exported images. Apple's Search API terms limit artwork to promoting Apple store content, so treat Apple art as the riskiest
+  source; Billboard genre charts are read from billboard.com pages, which may not be permitted by Billboard's terms. Both are flagged for the owner to decide.
+- See `tests/README.md` for the unit, database, API-security and manual test layers and which of the 12 flows have actually been run.
 - Library (`#/me`): `LIB_VIEWS` (All rated, Recently rated, Highest, Lowest, Favorites, Want to listen, Listened, With notes) x `LIB_SORTS`
   (date, rating, artist, title, release year; missing values always sort last; rating sorts hidden for Want to listen) + title/artist filter.
   Public lists are browsed at `#/lists/browse` from the `public_lists` view; list cards come from `listTile` (adaptive cover collage).

@@ -1187,6 +1187,7 @@ async function renderArtist(id) {
     return;
   }
   document.title = `${a.name} · Rotation`;
+  setPageMeta(document.title, `${a.name}${a.type ? `, ${a.type.toLowerCase()}` : ""}${a.area?.name ? ` from ${a.area.name}` : ""}. Albums and ratings on Rotation.`);
   const albums = (groups["release-groups"] || []).filter(isStudioAlbum)
     .sort((x, y) => (y["first-release-date"] || "").localeCompare(x["first-release-date"] || ""));
   const span = a["life-span"] || {};
@@ -1317,6 +1318,7 @@ async function renderAlbum(id) {
     if (c.data?.length) { S.counts = Array(10).fill(0); c.data.forEach((x) => { if (x.score >= 1 && x.score <= 10) S.counts[x.score - 1] = x.n; }); }
     reviews = (rv.data || []).filter((x) => !x.is_mine);
   }
+  setPageMeta(document.title, `${album.title} by ${album.artist}${yr ? ` (${yr})` : ""}${album.tracks?.length ? `, ${plural(album.tracks.length, "track")}` : ""}. ${S.stats ? `Community rating ${S.stats.avg_score} out of 10 from ${plural(S.stats.rating_count, "rating")}.` : "Not rated yet on Rotation."}`);
   const total = album.tracks?.reduce((s, t) => s + (t.length || 0), 0);
   const artistHref = (aid) => aid ? `#/artist/${aid}` : `#/find-artist/${encodeURIComponent(album.artist)}`;
   const eyebrow = () => [album.album_type, yr].filter(Boolean).join(" · ");
@@ -1722,6 +1724,7 @@ async function loadAlbumMore(album, artistHref) {
 }
 
 function renderNotFound() {
+  document.title = "Page not found · Rotation";
   view().innerHTML = emptyState({ iconName: "search", title: "Page not found", body: "That link doesn't go anywhere in Rotation.", actions: button("Go home", { variant: "primary", href: "#/" }) });
 }
 
@@ -1827,6 +1830,7 @@ async function renderPublicProfile(username) {
     return;
   }
   document.title = `${p.display_name || p.username} (@${p.username}) · Rotation`;
+  setPageMeta(document.title, p.bio ? p.bio.slice(0, 160) : `${p.display_name || "@" + p.username} on Rotation: albums rated, favorites and lists.`);
   const d = await loadProfileData(p, own);
   let following = false, followers = counts?.followers || 0;
   if (!own && user && sb) { const { data } = await sb.rpc("is_following", { p_username: username }); following = !!data; }
@@ -2060,6 +2064,7 @@ async function renderList(id) {
     items = data || [];
   }
   document.title = `${list.title} · Rotation`;
+  setPageMeta(document.title, list.description ? list.description.slice(0, 160) : `A list of ${plural(items.length, "album")} on Rotation.`);
 
   const rowsHTML = () => items.length ? `<ol class="entries">${items.map((x, i) => `<li class="entry">
       <span class="entry__rank">${i + 1}</span>
@@ -2791,7 +2796,38 @@ async function exportRecapImage(r, handle, who) {
 /* ==========================================================================
    Router and nav
    ========================================================================== */
+// Page metadata. Rotation uses hash URLs, so crawlers that don't run scripts only see the defaults in index.html;
+// browsers, link unfurlers that run scripts and screen readers get a real title and description per page.
+const DEFAULT_DESC = "Rotation: score albums out of 10, star standout tracks, keep lists and see where everyone else lands.";
+function setPageMeta(title, description = DEFAULT_DESC) {
+  if (title) document.title = title;
+  const set = (sel, attr, val) => { const el = $(sel); if (el) el.setAttribute(attr, val); };
+  set('meta[name="description"]', "content", description);
+  set('meta[property="og:title"]', "content", document.title);
+  set('meta[property="og:description"]', "content", description);
+  set('link[rel="canonical"]', "href", location.origin + location.pathname + location.hash);
+}
+// Error boundary: a failure while drawing a page shows a recoverable message instead of a blank screen
+function onRouteError(err) {
+  console.error("Page failed to render:", err);
+  const v = $("#view");
+  if (v) v.innerHTML = errorState({ title: "This page hit a problem", body: "Something unexpected went wrong. Your data is safe. Try again, or head back home.", retry: route, compact: false });
+}
+let lastErrorToast = 0;
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("Unhandled:", e.reason);
+  if (Date.now() - lastErrorToast > 4000) { lastErrorToast = Date.now(); toast("Something went wrong. Please try again.", "error"); }
+});
+// Every page gets a top-level heading for screen readers, even full-page empty and error states that have none
+new MutationObserver(() => {
+  const v = $("#view");
+  if (v && !$("h1", v)) v.insertAdjacentHTML("afterbegin", `<h1 class="sr">${esc(document.title.replace(/ · Rotation$/, ""))}</h1>`);
+}).observe($("#view"), { childList: true });
 function route() {
+  setPageMeta("Rotation");
+  try { const r = routeInner(); if (r && typeof r.catch === "function") r.catch(onRouteError); } catch (e) { onRouteError(e); }
+}
+function routeInner() {
   const h = location.hash || "#/";
   window.scrollTo(0, 0);
   $("#nav").classList.remove("is-tucked");
