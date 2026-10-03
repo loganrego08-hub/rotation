@@ -18,7 +18,7 @@
   /* Color: text (all pass WCAG AA on --bg and --surface-2) */
   --text: #F1EFE9;               /* 16.2:1 on bg */
   --text-2: #B3B0A8;             /* 8.6:1 */
-  --text-3: #8F8C86;             /* 5.4:1, metadata only */
+  --text-3: #9A978F;             /* 6.1:1 on bg, 4.9:1 on the lightest surface; metadata only */
 
   /* Color: accent and status. Status colors always pair with an icon or label. */
   --accent: #B9F36B;
