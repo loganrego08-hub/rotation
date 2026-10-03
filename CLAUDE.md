@@ -44,6 +44,13 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   anything already shown this session. MusicBrainz returns HTTP 400 if a search's offset + limit passes 500 (`MB_WINDOW`) and 503s on bursts (`getJSON` retries once; `mbSlow` throttles).
   Search (`#/search/<term>?type=&from=&to=&genre=&artist=`) escapes Lucene input and dedupes identical title+artist release groups.
   Related albums on the album page always say why: same artist, shared genres (names shown), or listeners who rated both 8+ (`related_by_ratings`, 3+ people).
+- Pure logic lives in `lib.js` (taste comparison, yearly recap, recommendation merging) with unit tests in `tests/index.html`
+  (open it through any static server; it prints PASS/FAIL per test). Add tests there when changing lib.js.
+- Taste comparison (`#/compare/<user>`) needs 10+ shared ratings before any similarity % is shown; genre overlap needs 8+ rated albums with genres each.
+- Year in Rotation (`#/year/<y>`, `#/u/<name>/year/<y>`) uses `first_rated_at` (not edit time), only real ratings, and says it is not listening time.
+  The PNG export is drawn on a canvas as text and charts only: album artwork is never copied into exported files (rights holders' artwork).
+- Recommendations (`buildRecs`): explainable rules (similar listeners, artists, genres, charts), never includes rated albums; under 3 ratings it shows
+  general discovery labeled as such. `recs_from_similar_listeners` (schema v9) returns aggregates only, needs 2+ similar listeners.
 - Library (`#/me`): `LIB_VIEWS` (All rated, Recently rated, Highest, Lowest, Favorites, Want to listen, Listened, With notes) x `LIB_SORTS`
   (date, rating, artist, title, release year; missing values always sort last; rating sorts hidden for Want to listen) + title/artist filter.
   Public lists are browsed at `#/lists/browse` from the `public_lists` view; list cards come from `listTile` (adaptive cover collage).

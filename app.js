@@ -203,7 +203,7 @@ function scoreChip(value, { mine = false, count, label } = {}) {
 function metaLine(text, kind) {
   if (!text) return "";
   const ic = { up: "up", down: "down", new: "spark" }[kind];
-  return `<span class="meta${kind ? ` meta--${kind}` : ""}">${ic ? icon(ic) : ""}<span>${esc(text)}</span></span>`;
+  return `<span class="meta${kind ? ` meta--${kind}` : ""}${text.length > 30 ? " meta--wrap" : ""}" title="${esc(text)}">${ic ? icon(ic) : ""}<span>${esc(text)}</span></span>`;
 }
 
 function albumCard(it, { rank, score, mine = false, count, scoreLabel, meta, metaKind } = {}) {
@@ -969,42 +969,39 @@ function renderSearch(term, f = {}) {
   if (!term && !hasFilters(f)) $("[data-search]").focus();
 }
 
-/* ---------- Recommendations: Billboard charts matched to your taste ---------- */
-async function buildRecs(ratings) {
-  const ratedKeys = new Set(ratings.map((r) => norm(r.album?.title) + "|" + norm(r.album?.artist)));
-  const seeds = ratings.filter((r) => r.score >= 7).slice(0, 8);
-  if (!seeds.length) seeds.push(...ratings.slice(0, 3));
-  const weight = new Map(), loved = new Set();
-  for (const r of seeds) {
-    loved.add(norm(r.album.artist));
-    let names = r.album.genres || [];
-    if (!names.length) {
-      try {
-        const rg = await mbSlow(`${MB}/release-group/${r.album.id}?inc=genres+tags&fmt=json`);
-        names = tagNames(rg).slice(0, 5);
-        const g = (rg.genres || []).sort((a, b) => b.count - a.count).slice(0, 4).map((x) => x.name);
-        if (g.length) sb.from("albums").update({ genres: g }).eq("id", r.album.id).then(() => {});
-      } catch {}
-    }
-    names.slice(0, 5).forEach((n, i) => { const g = matchGenre(n); if (g) weight.set(g, (weight.get(g) || 0) + r.score * (5 - i)); });
-  }
-  const picks = [...weight.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([g]) => g);
-  const lists = await Promise.all(picks.map((g) => genreChart(g).then((c) => c.items.map((x) => ({ ...x, move: null, why: `#${x.rank} in ${g.name}` }))).catch(() => [])));
-  const b200 = await billboard("billboard-200").then((c) => c.items.map((x) => ({ ...x, move: null, why: `#${x.rank} on the Billboard 200` }))).catch(() => []);
-  const pool = [];
-  const max = Math.max(0, ...lists.map((l) => l.length));
-  for (let i = 0; i < max; i++) lists.forEach((l) => l[i] && pool.push(l[i]));
-  pool.push(...b200);
-  const out = [], seen = new Set();
-  for (const it of pool) {
-    const k = norm(it.title) + "|" + norm(it.artist);
-    if (ratedKeys.has(k) || seen.has(k) || !keep(it)) continue;
-    seen.add(k);
-    if (loved.has(norm(it.artist))) it.why = "An artist you rate highly";
-    out.push(it);
-  }
-  out.sort((a, b) => loved.has(norm(b.artist)) - loved.has(norm(a.artist)));
-  return { items: out.slice(0, 18), genres: picks.map((g) => g.name) };
+/* ---------- Recommendations ----------
+   Explainable rules, no machine learning. Each pick says which rule produced it, and nothing you've
+   already rated is ever suggested. Sources, in priority order, interleaved so no single rule dominates:
+     1. listeners whose rating pattern is similar to yours scored it 8+ (needs 2+ similar listeners)
+     2. more albums by artists you rate 8+ on average
+     3. well-rated albums in genres you rate highly (two or more albums at 7+)
+     4. this week's Billboard albums in those genres
+   With fewer than 3 ratings we don't pretend to know your taste: you get general discovery, labeled as such. */
+const REC_MIN_RATINGS = 3;
+async function buildRecs(rows) {
+  const rated = rows.map((r) => ({ id: r.album.id, title: r.album.title, artist: r.album.artist }));
+  const flat = rows.map((r) => ({ album_id: r.album.id, title: r.album.title, artist: r.album.artist, genres: r.album.genres || [], score: r.score }));
+  const taste = RL.tasteProfile(flat);
+  const topGenres = taste.genres.slice(0, 3), topArtists = taste.artists.slice(0, 4);
+  const cat = (r, why) => ({ id: r.album_id, title: r.title, artist: r.artist, art: r.cover_url, why });
+  const [sim, byArtist, byGenre, charts] = await Promise.all([
+    sb.rpc("recs_from_similar_listeners", { p_limit: 12 }).then((r) => r.data || []).catch(() => []),
+    topArtists.length ? sb.from("album_catalog").select("album_id, title, artist, cover_url, avg_score, rating_count").in("artist", topArtists.map((a) => a.name)).limit(40).then((r) => r.data || []).catch(() => []) : [],
+    topGenres.length ? sb.from("album_catalog").select("album_id, title, artist, cover_url, genres, avg_score, rating_count, weighted_score").overlaps("genres", topGenres.map((g) => g.name)).gte("rating_count", 1)
+      .order("weighted_score", { ascending: false }).limit(40).then((r) => r.data || []).catch(() => []) : [],
+    Promise.all(topGenres.map((tg) => { const g = matchGenre(tg.name); return g ? genreChart(g).then((c) => c.items.map((x) => ({ ...x, genreName: g.name }))).catch(() => []) : []; })).then((x) => x.flat()),
+  ]);
+  const lists = {
+    listeners: sim.map((r) => cat(r, `${r.similar_listeners} listeners with taste like yours scored it 8+`)),
+    artist: byArtist.map((r) => { const a = taste.artists.find((x) => x.name === r.artist); return cat(r, `You rate ${r.artist} ${a?.avg ?? "highly"} on average`); }),
+    genre: byGenre.map((r) => { const g = topGenres.find((x) => (r.genres || []).includes(x.name)); return cat(r, `You rate ${g?.name || "this genre"} highly (${plural(g?.n || 0, "album")}); the community averages ${r.avg_score}`); }),
+    chart: charts.filter((x) => keep(x) && !/\b(EP|Single)\b/i.test(x.title)).map((x) => ({ title: x.title, artist: x.artist, art: x.art, why: `#${x.rank} in ${x.genreName} this week, a genre you rate highly` })),
+  };
+  // Round-robin across rules, then drop anything already rated or duplicated
+  const order = ["listeners", "artist", "genre", "chart"], groups = [];
+  for (let i = 0; i < 6; i++) order.forEach((rule) => { if (lists[rule][i]) groups.push({ rule, items: [lists[rule][i]] }); });
+  const items = RL.mergeRecs(groups, rated, 18);
+  return { items, genres: topGenres.map((g) => g.name), rules: [...new Set(items.map((i) => i.rule))] };
 }
 async function loadRecs() {
   if (!sb || !user) return;
@@ -1014,27 +1011,28 @@ async function loadRecs() {
   const el = $("#recs");
   let ratings = [];
   try { ratings = await myRatings("score, updated_at, album:albums(id,title,artist,genres)"); } catch {}
-  if (ratings.length < 3) {
-    const need = 3 - ratings.length;
-    $("#recWhy").textContent = "Tuned to the genres you score highest";
-    if (el.isConnected) el.outerHTML = `<div id="recs">${emptyState({ iconName: "star", compact: true,
-      title: ratings.length ? `Rate ${plural(need, "more album")} to unlock picks` : "Rate three albums to unlock picks",
-      body: "We match this week's charts to what you score highly.",
-      actions: button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) })}</div>`;
+  if (ratings.length < REC_MIN_RATINGS) {
+    // New account: general discovery, honestly labeled
+    const need = REC_MIN_RATINGS - ratings.length;
+    $("#recWhy").textContent = `Popular right now, not personalized yet. Rate ${plural(need, "more album")} and these start to reflect your taste.`;
+    try { const c = await billboard("billboard-200"); if (el.isConnected) el.innerHTML = c.items.slice(0, 12).map((it) => albumCard({ ...it, move: null, why: `#${it.rank} on the Billboard 200` })).join(""); }
+    catch { if (el.isConnected) el.outerHTML = `<div id="recs">${emptyState({ iconName: "star", compact: true, title: "Rate a few albums to unlock picks", body: "We match this week's charts and the community to what you score highly.", actions: button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) })}</div>`; }
     return;
   }
-  $("#recWhy").textContent = "Matching this week's charts to what you rate highly…";
+  $("#recWhy").textContent = "Matching genres, artists and similar listeners to what you rate highly…";
   const sig = user.id + ":" + ratings.map((r) => r.album.id + r.score).join(",");
   let recs;
-  try { recs = JSON.parse(sessionStorage.getItem("recs5:" + sig) || "null"); } catch {}
+  try { recs = JSON.parse(sessionStorage.getItem("recs6:" + sig) || "null"); } catch {}
   if (!recs) {
-    try { recs = await buildRecs(ratings); } catch { recs = { items: [] }; }
-    try { sessionStorage.setItem("recs5:" + sig, JSON.stringify(recs)); } catch {}
+    try { recs = await buildRecs(ratings); } catch { recs = { items: [], genres: [], rules: [] }; }
+    try { sessionStorage.setItem("recs6:" + sig, JSON.stringify(recs)); } catch {}
   }
   if (!el.isConnected) return;
-  $("#recWhy").textContent = recs.genres?.length ? `From this week's ${recs.genres.join(", ")} charts` : "From this week's Billboard 200";
+  const RULE_TEXT = { listeners: "listeners with similar taste", artist: "artists you rate highly", genre: "genres you rate highly", chart: "this week's charts" };
+  $("#recWhy").textContent = recs.items.length ? `Picked from ${recs.rules.map((r) => RULE_TEXT[r]).join(", ")}. Albums you've rated are never shown.` : "";
   el.innerHTML = recs.items.length ? recs.items.map((it) => albumCard(it)).join("")
-    : emptyState({ title: "No new picks this week", body: "You've rated everything charting in your genres. Check back after Tuesday's update.", compact: true });
+    : emptyState({ title: "No new picks right now", body: "You've rated everything we'd suggest from your genres and artists. Try Surprise me or browse hidden gems.", compact: true,
+        actions: button("Surprise me", { variant: "primary", href: "#/surprise", iconName: "spark" }) });
 }
 
 /* ---------- Genre chart ---------- */
@@ -1153,8 +1151,8 @@ async function renderProfile() {
         { label: "Albums rated", value: rows.length }, { label: "Average score", value: avg },
         { label: "Standout tracks", value: standouts }, { label: "Top genre", value: topGenre }],
         extra: `<div class="chips" style="margin-top:var(--s-4)">${profile
-          ? `${button("View public profile", { size: "sm", href: profileHref(profile.username), iconName: "user" })}${button("Edit profile", { size: "sm", href: "#/me/edit", iconName: "note" })}<span class="t-meta" style="align-self:center">${profile.is_public ? "Public" : "Private until you make it public"}</span>`
-          : `${button("Create your profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}<span class="t-meta" style="align-self:center">Pin favorites, share lists and let people follow you.</span>`}</div>` })}
+          ? `${button("View public profile", { size: "sm", href: profileHref(profile.username), iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `#/year/${thisYear()}`, iconName: "star" })}${button("Edit profile", { size: "sm", href: "#/me/edit", iconName: "note" })}<span class="t-meta" style="align-self:center">${profile.is_public ? "Public" : "Private until you make it public"}</span>`
+          : `${button("Create your profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `#/year/${thisYear()}`, iconName: "star" })}<span class="t-meta" style="align-self:center">Pin favorites, share lists and let people follow you.</span>`}</div>` })}
       ${tabs(Object.entries(LIB_VIEWS).map(([k, v]) => [k, `${v.label} (${count(k)})`]), profileTab, "Library views")}
       <div class="toolbar toolbar--lib">
         <label class="search search--lib"><span class="sr">Filter by title or artist</span>${icon("search", "search__icon")}
@@ -1776,11 +1774,11 @@ async function loadProfileData(p, own) {
   if (own) {
     const [pins, ratings, lists] = await Promise.all([
       q(sb.from("profile_pins").select("position, album:albums(id,title,artist,cover_url)").order("position")),
-      q(sb.from("ratings").select("score, thoughts, is_public, credit_profile, updated_at, album:albums(id,title,artist,cover_url,genres)").order("updated_at", { ascending: false }).limit(300)),
+      q(sb.from("ratings").select("score, thoughts, is_public, credit_profile, updated_at, created_at, album:albums(id,title,artist,cover_url,genres)").order("updated_at", { ascending: false }).limit(300)),
       q(sb.from("lists").select("id, title, description, is_public, updated_at, list_items(position, album:albums(cover_url))").order("updated_at", { ascending: false })),
     ]);
     const rs = ratings.filter((r) => r.album).map((r) => ({ album_id: r.album.id, title: r.album.title, artist: r.album.artist, cover_url: r.album.cover_url,
-      genres: r.album.genres || [], score: r.score, rated_at: r.updated_at, has_review: !!(r.credit_profile && r.is_public && r.thoughts?.trim()), body: r.thoughts }));
+      genres: r.album.genres || [], score: r.score, rated_at: r.updated_at, first_rated_at: r.created_at, has_review: !!(r.credit_profile && r.is_public && r.thoughts?.trim()), body: r.thoughts }));
     return {
       pins: pins.filter((x) => x.album).map((x) => ({ position: x.position, album_id: x.album.id, title: x.album.title, artist: x.album.artist, cover_url: x.album.cover_url })),
       ratings: rs,
@@ -1844,7 +1842,8 @@ async function renderPublicProfile(username) {
   ];
   const actions = own
     ? `${button("Edit profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}`
-    : `<button type="button" class="btn btn--sm${following ? "" : " btn--primary"}" id="followBtn" aria-pressed="${following}">${icon(following ? "check" : "user")}<span>${following ? "Following" : "Follow"}</span></button>${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}${button("Report", { size: "sm", variant: "ghost", id: "reportProfile", iconName: "flag" })}`;
+    : `<button type="button" class="btn btn--sm${following ? "" : " btn--primary"}" id="followBtn" aria-pressed="${following}">${icon(following ? "check" : "user")}<span>${following ? "Following" : "Follow"}</span></button>${button("Compare tastes", { size: "sm", href: `#/compare/${username}`, iconName: "spark" })}${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}${button("Report", { size: "sm", variant: "ghost", id: "reportProfile", iconName: "flag" })}`;
+  const recapYear = ratingsVisible ? RL.yearsWithRatings(d.ratings)[0] : null;
   const taste = ratingsVisible ? tasteOf(d.ratings) : null;
 
   const draw = () => {
@@ -1881,7 +1880,7 @@ async function renderPublicProfile(username) {
   view().innerHTML = `
     ${profileHeader({ avatar: avatarHTML(p, "lg"), eyebrow: `@${p.username}${p.created_at ? ` · Joined ${fmtDate(String(p.created_at).slice(0, 7))}` : ""}`,
       name: p.display_name || p.username, stats,
-      extra: `${p.bio ? `<p class="profile__bio">${esc(p.bio)}</p>` : ""}<div class="chips" style="margin-top:var(--s-4)">${actions}</div>` })}
+      extra: `${p.bio ? `<p class="profile__bio">${esc(p.bio)}</p>` : ""}<div class="chips" style="margin-top:var(--s-4)">${actions}${recapYear ? button("Year in Rotation", { size: "sm", href: `#/u/${username}/year/${recapYear}`, iconName: "star" }) : ""}</div>` })}
     ${own && !p.is_public ? `<p class="alert alert--warning" role="status" style="margin-bottom:var(--s-8)">${icon("alert")}<span>Only you can see this profile. Make it public in Edit profile to share the link.</span></p>` : ""}
     ${d.pins.length || own ? `<section class="section">${sectionHead("Favorite albums", { sub: d.pins.length ? "" : "Pin up to six albums from any album page.", link: own ? "#/me/edit" : null, linkLabel: "Manage" })}
       ${d.pins.length ? `<div class="tiles tiles--pins">${d.pins.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist })).join("")}</div>` : ""}</section>` : ""}
@@ -2599,6 +2598,197 @@ async function renderSurprise() {
 }
 
 /* ==========================================================================
+   Taste comparison and Year in Rotation
+   Both are computed in the browser from ratings the viewer is allowed to see (see lib.js).
+   ========================================================================== */
+const RL = window.RotationLib;
+const thisYear = () => new Date().getFullYear();
+
+// One person's ratings in a common shape. Your own come from your tables; anyone else's from the public views,
+// and only when their profile is public and shows ratings.
+async function ratingsOf(username) {
+  if (username === "me" || (profile && profile.username === username)) {
+    const rows = await myRatings("score, thoughts, is_public, credit_profile, updated_at, created_at, album:albums(id,title,artist,cover_url,genres)");
+    return { self: true, username: profile?.username || null, name: username === "me" && !profile ? "You" : (profile?.display_name || profile?.username || "You"), avatar: profile ? { ...profile } : { display_name: "You" },
+      available: true, rows: rows.map((r) => ({ album_id: r.album.id, title: r.album.title, artist: r.album.artist, cover_url: r.album.cover_url, genres: r.album.genres || [], score: r.score,
+        first_rated_at: r.created_at, thoughts: r.thoughts, shared: !!(r.is_public && r.credit_profile && r.thoughts?.trim()), updated_at: r.updated_at })) };
+  }
+  const { data: p } = await sb.from("public_profiles").select("*").eq("username", username).maybeSingle();
+  if (!p) return { self: false, username, available: false, reason: "missing", rows: [] };
+  if (!p.show_ratings) return { self: false, username, name: p.display_name || p.username, avatar: p, available: false, reason: "private", rows: [] };
+  const { data } = await sb.from("public_ratings").select("*").eq("username", username).limit(1000);
+  return { self: false, username, name: p.display_name || p.username, avatar: p, available: true,
+    rows: (data || []).map((r) => ({ album_id: r.album_id, title: r.title, artist: r.artist, cover_url: r.cover_url, genres: r.genres || [], score: r.score, first_rated_at: r.first_rated_at || r.rated_at, shared: r.has_review })) };
+}
+
+/* ---------- Taste comparison ---------- */
+async function renderCompare(aName, bName) {
+  document.title = "Compare tastes · Rotation";
+  if (!sb || (!bName && !user)) {
+    view().innerHTML = emptyState({ iconName: "user", title: "Sign in to compare tastes", body: "Comparing uses the albums you've both rated.", actions: button("Sign in", { variant: "primary", id: "cmpSignIn" }) });
+    $("#cmpSignIn")?.addEventListener("click", openAuth);
+    return;
+  }
+  view().innerHTML = `${loadingLabel("Comparing tastes")}<header class="page-head"><div class="sk sk-line" style="height:36px;width:50%"></div></header>${skList(4)}`;
+  const first = bName ? aName : "me", second = bName || aName;
+  let A, B;
+  try { [A, B] = await Promise.all([ratingsOf(first), ratingsOf(second)]); }
+  catch { view().innerHTML = errorState({ title: "Couldn't load the comparison", retry: () => renderCompare(aName, bName), compact: false }); return; }
+  for (const P of [A, B]) if (!P.available) {
+    view().innerHTML = emptyState({ iconName: "user", compact: false, title: P.reason === "private" ? `${P.name} keeps their ratings private` : "Profile not found",
+      body: P.reason === "private" ? "Taste comparison only works with people who show their ratings." : "This profile doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "#/" }) });
+    return;
+  }
+  if (A.self && B.self) { view().innerHTML = emptyState({ iconName: "user", title: "That's you twice", body: "Pick someone else to compare with.", compact: false }); return; }
+  const c = RL.compareTaste(A.rows, B.rows);
+  const nameA = A.self ? "You" : A.name, nameB = B.self ? "You" : B.name;
+  document.title = `${nameA} and ${nameB} · Compare tastes · Rotation`;
+  const pair = (s) => `${nameA}: ${s.a} · ${nameB}: ${s.b}`;
+  const tileOf = (s) => tile({ href: `#/album/${s.album_id}`, art: s.cover_url, title: s.title, artist: s.artist, note: pair(s) });
+  const link = (P) => (P.username ? `<a class="textlink" href="${profileHref(P.username)}">${esc(P.self ? "You" : P.name)}</a>` : esc(P.name));
+
+  view().innerHTML = `
+    <header class="page-head"><p class="t-meta">Taste comparison</p><h1 class="t-title">${link(A)} and ${link(B)}</h1>
+      <p class="t-lead">Compares the albums you've both rated on Rotation. It says nothing about what either of you has heard but not rated.</p></header>
+    <section class="panel" aria-labelledby="cmp-h"><h2 class="t-section" id="cmp-h">The numbers</h2>
+      <dl class="profile__stats">
+        <div class="stat"><dt class="stat__label">Albums you both rated</dt><dd class="stat__value" style="margin:0">${c.n}</dd></div>
+        ${c.n ? `<div class="stat"><dt class="stat__label">Average gap</dt><dd class="stat__value" style="margin:0">${c.avgGap} pts</dd></div>
+        <div class="stat"><dt class="stat__label">${esc(nameA)} averaged</dt><dd class="stat__value" style="margin:0">${c.avgA}</dd></div>
+        <div class="stat"><dt class="stat__label">${esc(nameB)} averaged</dt><dd class="stat__value" style="margin:0">${c.avgB}</dd></div>` : ""}
+        ${c.enough ? `<div class="stat"><dt class="stat__label">Rough similarity</dt><dd class="stat__value" style="margin:0">${c.similarity}%</dd></div>` : ""}
+      </dl>
+      <p class="t-meta">${c.enough ? `Based on ${plural(c.n, "shared rating")}. Similarity is 100% minus the average gap as a share of a 9-point swing. A rough guide, not a verdict.`
+        : c.n ? `Only ${plural(c.n, "shared rating")} so far. A similarity percentage needs ${c.needed}, so none is shown. The albums below are still real.`
+        : "You haven't rated any of the same albums yet, so there's nothing to compare."}</p></section>
+    ${c.love.length ? `<section class="section" style="margin-top:var(--s-10)">${sectionHead("Albums you both love", { sub: "Both scored 8 or higher" })}<div class="tiles">${c.love.map(tileOf).join("")}</div></section>` : ""}
+    ${c.differ.length ? `<section class="section">${sectionHead("Where you differ", { sub: "Scores 4 or more points apart, biggest gap first" })}<div class="tiles">${c.differ.map(tileOf).join("")}</div></section>` : ""}
+    <section class="section">${sectionHead("Genres", { sub: c.genres.sufficient ? "Each person's most-rated genres" : "" })}
+      ${c.genres.sufficient ? (c.genres.shared.length ? `<p class="text-2" style="font-size:var(--fs-sm);margin-bottom:var(--s-3)">You both rate a lot of:</p><div class="chips">${c.genres.shared.map((g) => `<span class="chip chip--static">${esc(g)}</span>`).join("")}</div>`
+          : `<p class="text-2" style="font-size:var(--fs-sm)">No overlap in your five most-rated genres. ${esc(nameA)}: ${esc(c.genres.topA.join(", "))}. ${esc(nameB)}: ${esc(c.genres.topB.join(", "))}.</p>`)
+        : `<p class="text-2" style="font-size:var(--fs-sm)">Genre overlap needs ${c.genres.needed}+ rated albums with genre data each. ${esc(nameA)} has ${c.genres.a}, ${esc(nameB)} has ${c.genres.b}.</p>`}</section>
+    ${c.n ? `<section class="section">${sectionHead(c.n === 1 ? "Your shared album" : `All ${c.n} shared albums`)}<div class="tiles">${c.shared.map(tileOf).join("")}</div></section>` : ""}`;
+}
+
+/* ---------- Year in Rotation ---------- */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+async function catalogCounts(ids) {
+  const counts = new Map();
+  for (let i = 0; i < ids.length; i += 80) {
+    const { data } = await sb.from("album_catalog").select("album_id, rating_count").in("album_id", ids.slice(i, i + 80));
+    (data || []).forEach((r) => counts.set(r.album_id, r.rating_count));
+  }
+  return counts;
+}
+async function renderRecap(username, yearArg) {
+  const own = !username || (profile && profile.username === username);
+  if (!sb || (own && !user)) {
+    view().innerHTML = emptyState({ iconName: "user", title: "Sign in to see your year", body: "Year in Rotation summarizes the albums you rated.", actions: button("Sign in", { variant: "primary", id: "yrSignIn" }) });
+    $("#yrSignIn")?.addEventListener("click", openAuth);
+    return;
+  }
+  view().innerHTML = `${loadingLabel("Building the recap")}<div class="recap"><div class="sk" style="height:220px;border-radius:var(--r-lg)"></div></div>`;
+  let P, reviews = [];
+  try {
+    P = await ratingsOf(own ? "me" : username);
+    if (P.available) {
+      reviews = P.self ? P.rows.filter((r) => r.shared).map((r) => ({ ...r, body: r.thoughts, when: r.updated_at }))
+        : ((await sb.from("public_reviews").select("*").eq("username", username).limit(200)).data || []).map((r) => ({ album_id: r.album_id, title: r.title, artist: r.artist, cover_url: r.cover_url, score: r.score, body: r.body, when: r.updated_at }));
+    }
+  } catch { view().innerHTML = errorState({ title: "Couldn't build the recap", retry: () => renderRecap(username, yearArg), compact: false }); return; }
+  if (!P.available) {
+    view().innerHTML = emptyState({ iconName: "user", compact: false, title: P.reason === "private" ? "This recap isn't shared" : "Profile not found",
+      body: P.reason === "private" ? `${P.name} keeps their ratings private.` : "This profile doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "#/" }) });
+    return;
+  }
+  const years = RL.yearsWithRatings(P.rows), year = +yearArg || +years[0] || thisYear();
+  const counts = await catalogCounts([...new Set(P.rows.filter((r) => String(r.first_rated_at).startsWith(String(year))).map((r) => r.album_id))]).catch(() => new Map());
+  const r = RL.recapOf(P.rows, year, counts);
+  const handle = P.username ? `@${P.username}` : "You";
+  const who = P.self ? "You" : P.name;
+  const yearReviews = reviews.filter((x) => String(x.when).startsWith(String(year))).sort((a, b) => String(b.body).length - String(a.body).length).slice(0, 3);
+  document.title = `${who === "You" ? "Your" : who + "'s"} ${year} in Rotation`;
+  const base = P.username ? `#/u/${P.username}/year/` : `#/year/`;
+  const maxN = Math.max(...r.byMonth.map((m) => m.n), 1);
+  const shareUrl = P.username ? `${location.origin}${location.pathname}#/u/${P.username}/year/${year}` : "";
+
+  view().innerHTML = `
+    <article class="recap" aria-labelledby="recap-h">
+      <header class="recap__hero">
+        <p class="recap__eyebrow">Year in Rotation · ${esc(handle)}</p>
+        <h1 class="recap__year" id="recap-h">${year}</h1>
+        ${r.n ? `<p class="recap__lead">${who === "You" ? "You" : esc(who)} rated <strong>${r.n}</strong> ${r.n === 1 ? "album" : "albums"}${r.avg != null ? `, averaging <strong>${r.avg}</strong> out of 10` : ""}.</p>`
+          : `<p class="recap__lead">No albums rated in ${year}.</p>`}
+        <div class="chips" aria-label="Years">${[...new Set([...years, String(thisYear())])].sort().reverse().map((y) => `<a class="chip" href="${base}${y}"${+y === year ? ' aria-current="page"' : ""}>${y}</a>`).join("")}</div>
+        <div class="chips">${r.n ? `<button type="button" class="btn btn--sm btn--primary" id="dlRecap">${icon("share")}<span>Download image</span></button>` : ""}${shareUrl ? button("Share link", { size: "sm", id: "shareRecap", iconName: "share" }) : ""}</div>
+        ${P.self && !profile?.is_public ? `<p class="t-meta">Only you can open this link. Make your profile public with ratings shown to share it.</p>` : ""}
+      </header>
+      ${r.n ? `
+      <section class="section" aria-labelledby="mo-h"><h2 class="t-section" id="mo-h">Rating rhythm</h2>
+        <div class="months" role="img" aria-label="Albums rated per month: ${r.byMonth.map((m) => `${MONTHS[m.month - 1]} ${m.n}`).join(", ")}">${r.byMonth.map((m) => `
+          <div class="months__col" title="${MONTHS[m.month - 1]}: ${plural(m.n, "album")}${m.avg != null ? `, averaging ${m.avg}` : ""}"><span class="dist__n">${m.n || ""}</span><span class="dist__track"><span class="dist__bar" style="height:${m.n ? Math.max(6, Math.round((m.n / maxN) * 100)) : 2}%"></span></span><span class="dist__label">${MONTHS[m.month - 1][0]}</span></div>`).join("")}</div>
+        <p class="t-meta">${r.busiestMonth ? `Busiest month: ${MONTHS[r.busiestMonth - 1]}. ` : ""}${r.trend ? `Your scores ${r.trend.direction === "steady" ? "stayed steady" : r.trend.direction === "up" ? "rose" : "fell"} through the year: ${r.trend.first} average for the first half, ${r.trend.second} for the second.` : "A trend needs 10 or more ratings in the year."}</p></section>
+      ${r.topRated.length ? `<section class="section">${sectionHead("Highest rated", { sub: "Your best scores this year" })}<div class="tiles">${r.topRated.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self })).join("")}</div></section>` : ""}
+      ${r.discoveries.length ? `<section class="section">${sectionHead("Highest-rated discoveries", { sub: "Albums you scored 8+ that 10 or fewer people on Rotation have rated" })}<div class="tiles">${r.discoveries.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(counts.get(x.album_id) || 0, "rating") + " on Rotation" })).join("")}</div></section>` : ""}
+      ${r.mostRated.length ? `<section class="section">${sectionHead("Most-rated albums you rated", { sub: "The albums you rated that the most people on Rotation have rated" })}<div class="tiles">${r.mostRated.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(x.community_count, "rating") })).join("")}</div></section>` : ""}
+      ${r.genres.length || r.artists.length ? `<section class="section">${sectionHead("Favorite genres and artists", { sub: "Genres and artists with 2+ albums rated this year" })}
+        ${r.genres.length ? `<div class="chips">${r.genres.map((g) => `<span class="chip chip--static">${esc(g.name)} · ${plural(g.n, "album")}, avg ${g.avg}</span>`).join("")}</div>` : ""}
+        ${r.artists.length ? `<div class="chips" style="margin-top:var(--s-3)">${r.artists.map((a) => `<span class="chip chip--static">${icon("user")}${esc(a.name)} · ${plural(a.n, "album")}, avg ${a.avg}</span>`).join("")}</div>` : ""}</section>` : ""}
+      ${yearReviews.length ? `<section class="section">${sectionHead("Memorable reviews", { sub: "Reviews shared publicly this year" })}<div class="reviews">${yearReviews.map((x) => `<article class="review-card"><header class="review-card__head">${artwork(smallArt(x.cover_url), x.title, "thumb")}
+        <span class="review-card__who"><a href="#/album/${x.album_id}"><strong>${esc(x.title)}</strong></a><span class="t-meta">${esc(x.artist || "")}</span></span>${scoreChip(x.score, { mine: P.self })}</header><p class="review-card__body">${esc(x.body)}</p></article>`).join("")}</div></section>` : ""}` : emptyState({ iconName: "disc", compact: true, title: `Nothing rated in ${year}`, body: P.self ? "Rate an album and it will show up in your recap." : "Check another year." })}
+      <footer class="recap__note"><h2 class="t-label">What this measures</h2>
+        <p>Albums ${esc(who === "You" ? "you" : who)} rated on Rotation in ${year}, counted by the day each was first rated. Rotation doesn't track what anyone listens to, so this is not listening time, play counts or an all-time ranking. Only real ratings are used; genres come from MusicBrainz tags.</p></footer>
+    </article>`;
+
+  $("#shareRecap")?.addEventListener("click", async () => {
+    const data = { title: `${who === "You" ? "My" : who + "'s"} ${year} in Rotation`, url: shareUrl };
+    if (P.self && !profile?.is_public) return toast("Make your profile public to share this recap.", "info");
+    if (navigator.share) { try { await navigator.share(data); } catch {} return; }
+    try { await navigator.clipboard.writeText(shareUrl); toast("Link copied"); } catch { toast("Copy the link from your address bar", "info"); }
+  });
+  $("#dlRecap")?.addEventListener("click", async (e) => {
+    const b = e.currentTarget; b.setAttribute("aria-busy", "true");
+    try { await exportRecapImage(r, handle, who); toast("Image downloaded"); } catch { toast("Couldn't create the image in this browser", "error"); }
+    b.removeAttribute("aria-busy");
+  });
+}
+
+// A shareable PNG drawn on a canvas from the same numbers. It is text and charts only: album artwork belongs to its
+// rights holders and is only shown inside the app, so it is never copied into an exported file.
+async function exportRecapImage(r, handle, who) {
+  try { await document.fonts?.ready; } catch {}
+  const W = 1080, H = 1350, c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const g = c.getContext("2d"), css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const bg = css("--bg"), surf = css("--surface-1"), text = css("--text"), t2 = css("--text-2"), t3 = css("--text-3"), accent = css("--accent"), line = css("--border-strong");
+  const serif = `"Newsreader", Georgia, serif`, sans = `"Geist", "Segoe UI", sans-serif`;
+  const clip = (s, max) => { s = String(s); if (g.measureText(s).width <= max) return s; while (s.length > 1 && g.measureText(s + "…").width > max) s = s.slice(0, -1); return s + "…"; };
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.strokeStyle = line; g.lineWidth = 2; g.strokeRect(40, 40, W - 80, H - 80);
+  g.fillStyle = t3; g.font = `500 28px ${sans}`; g.fillText(`YEAR IN ROTATION  ·  ${handle}`.toUpperCase(), 90, 120);
+  g.fillStyle = accent; g.font = `500 280px ${serif}`; g.fillText(String(r.year), 82, 360);
+  g.fillStyle = text; g.font = `500 54px ${serif}`;
+  g.fillText(clip(`${who === "You" ? "I" : who} rated ${r.n} ${r.n === 1 ? "album" : "albums"}${r.avg != null ? `, averaging ${r.avg}` : ""}`, W - 180), 90, 450);
+  // monthly bars
+  const bx = 90, bw = (W - 180) / 12, top = 520, bh = 170, max = Math.max(...r.byMonth.map((m) => m.n), 1);
+  r.byMonth.forEach((m, i) => { const h = m.n ? Math.max(8, (m.n / max) * bh) : 3; g.fillStyle = m.n ? accent : line; g.fillRect(bx + i * bw + 8, top + bh - h, bw - 16, h);
+    g.fillStyle = t3; g.font = `500 22px ${sans}`; g.textAlign = "center"; g.fillText(MONTHS[i][0], bx + i * bw + bw / 2, top + bh + 34); if (m.n) g.fillText(String(m.n), bx + i * bw + bw / 2, top + bh - h - 10); g.textAlign = "left"; });
+  let y = top + bh + 110;
+  const list = (title, items, fmt) => { if (!items.length) return; g.fillStyle = t3; g.font = `500 24px ${sans}`; g.fillText(title.toUpperCase(), 90, y); y += 48;
+    items.slice(0, 4).forEach((it) => { g.fillStyle = text; g.font = `500 36px ${sans}`; g.fillText(clip(fmt(it).left, W - 330), 90, y); g.fillStyle = accent; g.font = `500 36px ${serif}`; g.textAlign = "right"; g.fillText(fmt(it).right, W - 90, y); g.textAlign = "left"; y += 52; }); y += 28; };
+  list("Highest rated", r.topRated, (x) => ({ left: `${x.title} · ${x.artist}`, right: `${x.score}/10` }));
+  list("Favorite genres", r.genres.slice(0, 3), (x) => ({ left: x.name, right: `${x.n} albums` }));
+  list("Favorite artists", r.artists.slice(0, 3), (x) => ({ left: x.name, right: `avg ${x.avg}` }));
+  g.fillStyle = t3; g.font = `400 24px ${sans}`;
+  g.fillText("Based on albums rated on Rotation. Not listening time.", 90, H - 90);
+  g.textAlign = "right"; g.fillStyle = t2; g.font = `500 30px ${serif}`; g.fillText("Rotation", W - 90, H - 88); g.textAlign = "left";
+  const blob = await new Promise((ok, no) => c.toBlob((b) => (b ? ok(b) : no(new Error("no blob"))), "image/png"));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `year-in-rotation-${r.year}.png`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/* ==========================================================================
    Router and nav
    ========================================================================== */
 function route() {
@@ -2618,6 +2808,9 @@ function route() {
   if ((m = h.match(/^#\/genre\/([a-z-]+)/))) return renderGenre(m[1]);
   if (h === "#/feed") return renderFeed();
   if (h === "#/notifications") return renderNotifications();
+  if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})\/year\/(\d{4})$/i))) return renderRecap(m[1].toLowerCase(), m[2]);
+  if ((m = h.match(/^#\/year(?:\/(\d{4}))?$/))) return renderRecap(null, m[1]);
+  if ((m = h.match(/^#\/compare\/([a-z0-9_]{3,20})(?:\/([a-z0-9_]{3,20}))?$/i))) return renderCompare(m[1].toLowerCase(), m[2]?.toLowerCase());
   if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})$/i))) return renderPublicProfile(m[1]);
   if ((m = h.match(/^#\/list\/([0-9a-f-]{36})$/i))) return renderList(m[1]);
   if (h === "#/me/edit") return renderProfileEdit();

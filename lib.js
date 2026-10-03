@@ -1,0 +1,102 @@
+/* Rotation: pure logic with no DOM or network access, so it can be unit tested (see tests/index.html).
+   Everything here works only on the ratings it is given; nothing is invented or estimated. */
+(function (root) {
+  const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  const round1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
+  const norm = (s) => String(s || "").toLowerCase().replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/\s+-\s+(ep|single)$/i, "").replace(/[^a-z0-9]/g, "");
+
+  /* ---------- Taste comparison ---------- */
+  const MIN_SHARED_FOR_SCORE = 10;   // shared ratings before any similarity percentage is shown
+  const MIN_GENRE_ALBUMS = 8;        // rated albums with genre data each person needs before genre overlap is shown
+
+  function genreCounts(rows) {
+    const m = new Map();
+    rows.forEach((r) => (r.genres || []).slice(0, 2).forEach((g) => m.set(g, (m.get(g) || 0) + 1)));
+    return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name, n]) => ({ name, n }));
+  }
+  function genreOverlap(a, b) {
+    const withGenres = (rows) => rows.filter((r) => (r.genres || []).length);
+    const ga = withGenres(a), gb = withGenres(b);
+    if (ga.length < MIN_GENRE_ALBUMS || gb.length < MIN_GENRE_ALBUMS) return { sufficient: false, needed: MIN_GENRE_ALBUMS, a: ga.length, b: gb.length, shared: [] };
+    const ta = genreCounts(ga).slice(0, 5), tb = genreCounts(gb).slice(0, 5);
+    const setB = new Set(tb.map((x) => x.name));
+    return { sufficient: true, shared: ta.filter((x) => setB.has(x.name)).map((x) => x.name), topA: ta.map((x) => x.name), topB: tb.map((x) => x.name) };
+  }
+  // a, b: [{ album_id, title, artist, cover_url, genres, score }]
+  function compareTaste(a, b) {
+    const bm = new Map(b.map((r) => [r.album_id, r]));
+    const shared = a.filter((r) => bm.has(r.album_id)).map((r) => ({ ...r, a: r.score, b: bm.get(r.album_id).score, diff: r.score - bm.get(r.album_id).score }));
+    const n = shared.length;
+    const mad = n ? mean(shared.map((s) => Math.abs(s.diff))) : null;
+    return {
+      n, enough: n >= MIN_SHARED_FOR_SCORE, needed: MIN_SHARED_FOR_SCORE,
+      avgGap: round1(mad), avgA: round1(mean(shared.map((s) => s.a))), avgB: round1(mean(shared.map((s) => s.b))),
+      // Similarity is a rough guide: 100% = identical scores on every shared album, 0% = a nine point gap on average
+      similarity: n >= MIN_SHARED_FOR_SCORE ? Math.round((1 - mad / 9) * 100) : null,
+      love: shared.filter((s) => s.a >= 8 && s.b >= 8).sort((x, y) => y.a + y.b - (x.a + x.b)),
+      differ: shared.filter((s) => Math.abs(s.diff) >= 4).sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff)),
+      shared: shared.sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff) || (y.a + y.b) - (x.a + x.b)),
+      genres: genreOverlap(a, b),
+    };
+  }
+
+  /* ---------- Year in Rotation ---------- */
+  // rows: [{ album_id, title, artist, cover_url, genres, score, first_rated_at }]; counts: Map(album_id -> community rating count)
+  function recapOf(rows, year, counts = new Map()) {
+    const y = String(year);
+    const mine = rows.filter((r) => String(r.first_rated_at || "").slice(0, 4) === y);
+    const n = mine.length;
+    const byMonth = Array.from({ length: 12 }, (_, i) => {
+      const m = mine.filter((r) => +String(r.first_rated_at).slice(5, 7) === i + 1);
+      return { month: i + 1, n: m.length, avg: round1(mean(m.map((r) => r.score))) };
+    });
+    const groupBy = (keyFn) => { const g = new Map(); mine.forEach((r) => keyFn(r).forEach((k) => { const x = g.get(k) || { name: k, n: 0, sum: 0 }; x.n++; x.sum += r.score; g.set(k, x); })); return [...g.values()]; };
+    const genres = groupBy((r) => (r.genres || []).slice(0, 2)).filter((g) => g.n >= 2).sort((a, b) => b.n - a.n || b.sum / b.n - a.sum / a.n).slice(0, 5).map((g) => ({ name: g.name, n: g.n, avg: round1(g.sum / g.n) }));
+    const artists = groupBy((r) => [r.artist]).filter((g) => g.n >= 2).sort((a, b) => b.sum / b.n - a.sum / a.n || b.n - a.n).slice(0, 5).map((g) => ({ name: g.name, n: g.n, avg: round1(g.sum / g.n) }));
+    const byScore = [...mine].sort((a, b) => b.score - a.score || String(a.first_rated_at).localeCompare(String(b.first_rated_at)));
+    const topRated = byScore.filter((r) => r.score >= 8).slice(0, 5);
+    // "Discoveries": albums you loved that few others on Rotation have rated (10 ratings or fewer in total)
+    const discoveries = byScore.filter((r) => r.score >= 8 && (counts.get(r.album_id) ?? 0) <= 10).slice(0, 5);
+    // "Most-rated": the albums you rated that the most people on Rotation have rated
+    const mostRated = [...mine].filter((r) => (counts.get(r.album_id) ?? 0) >= 1).sort((a, b) => (counts.get(b.album_id) || 0) - (counts.get(a.album_id) || 0) || b.score - a.score).slice(0, 5)
+      .map((r) => ({ ...r, community_count: counts.get(r.album_id) || 0 }));
+    // Trend: only with enough ratings, and only a plain first-half vs second-half comparison
+    let trend = null;
+    if (n >= 10) {
+      const ordered = [...mine].sort((a, b) => String(a.first_rated_at).localeCompare(String(b.first_rated_at)));
+      const half = Math.floor(n / 2), first = mean(ordered.slice(0, half).map((r) => r.score)), second = mean(ordered.slice(half).map((r) => r.score));
+      trend = { first: round1(first), second: round1(second), direction: Math.abs(second - first) < 0.5 ? "steady" : second > first ? "up" : "down" };
+    }
+    return { year: +year, n, avg: round1(mean(mine.map((r) => r.score))), byMonth, genres, artists, topRated, discoveries, mostRated, trend,
+      busiestMonth: n ? byMonth.reduce((best, m) => (m.n > best.n ? m : best), byMonth[0]).month : null };
+  }
+  const yearsWithRatings = (rows) => [...new Set(rows.map((r) => String(r.first_rated_at || "").slice(0, 4)).filter((y) => /^\d{4}$/.test(y)))].sort().reverse();
+
+  /* ---------- Recommendations ---------- */
+  // groups: [{ rule, items: [{ id?, title, artist, ... , why }] }] in priority order.
+  // Removes anything already rated (by id or by title+artist), de-duplicates, keeps priority order.
+  function mergeRecs(groups, rated, limit = 18) {
+    const ids = new Set(rated.map((r) => r.id || r.album_id).filter(Boolean)), keys = new Set(rated.map((r) => norm(r.title) + "|" + norm(r.artist)));
+    const seen = new Set(), out = [];
+    for (const g of groups) for (const it of g.items) {
+      const k = norm(it.title) + "|" + norm(it.artist);
+      if ((it.id && ids.has(it.id)) || keys.has(k) || seen.has(k)) continue;
+      seen.add(k); out.push({ ...it, rule: g.rule });
+      if (out.length >= limit) return out;
+    }
+    return out;
+  }
+  // Genres and artists a person rates highly: 7 or higher, weighted by how high. Needs repeat evidence.
+  function tasteProfile(rows) {
+    const liked = rows.filter((r) => r.score >= 7);
+    const g = new Map(), a = new Map();
+    liked.forEach((r) => {
+      (r.genres || []).slice(0, 3).forEach((n) => { const x = g.get(n) || { name: n, n: 0, sum: 0 }; x.n++; x.sum += r.score; g.set(n, x); });
+      const x = a.get(r.artist) || { name: r.artist, n: 0, sum: 0 }; x.n++; x.sum += r.score; a.set(r.artist, x);
+    });
+    const rank = (m, min) => [...m.values()].filter((x) => x.n >= min).sort((p, q) => q.sum - p.sum).map((x) => ({ name: x.name, n: x.n, avg: round1(x.sum / x.n) }));
+    return { genres: rank(g, 2), artists: rank(a, 1).filter((x) => x.avg >= 8) };
+  }
+
+  root.RotationLib = { mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+})(typeof window !== "undefined" ? window : globalThis);

@@ -644,3 +644,36 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.related_by_ratings(text, int) from public;
 grant execute on function public.related_by_ratings(text, int) to anon, authenticated;
+-- v9: taste comparison, yearly recap and personalized recommendations (run in the Supabase SQL editor)
+-- public_ratings gains first_rated_at (when the person first rated it), so a yearly recap isn't skewed by later edits.
+-- New column goes at the end of the view.
+create or replace view public.public_ratings as
+select p.username, a.id as album_id, a.title, a.artist, a.cover_url, a.genres, r.score, r.updated_at as rated_at,
+  (r.credit_profile and r.is_public and nullif(btrim(r.thoughts), '') is not null) as has_review,
+  r.created_at as first_rated_at
+from public.ratings r join public.profiles p on p.user_id = r.user_id and p.is_public and p.show_ratings join public.albums a on a.id = r.album_id;
+grant select on public.public_ratings to anon, authenticated;
+
+-- Albums that listeners with a similar rating pattern to the signed-in user scored 8+, and the user hasn't rated.
+-- "Similar" = 3+ albums in common and an average gap of 1.5 points or less. Only aggregates are returned, and only
+-- when at least 2 similar listeners agree, so no individual's ratings can be read from it.
+create or replace function public.recs_from_similar_listeners(p_limit int default 12)
+returns table (album_id text, title text, artist text, cover_url text, similar_listeners int, avg_score numeric)
+language sql stable security definer set search_path = public as $$
+  with me as (select r.album_id, r.score from public.ratings r where r.user_id = auth.uid()),
+  sim as (
+    select r.user_id from public.ratings r join me on me.album_id = r.album_id
+    where r.user_id <> auth.uid() and auth.uid() is not null
+    group by r.user_id
+    having count(*) >= 3 and avg(abs(r.score - me.score)) <= 1.5
+  )
+  select a.id, a.title, a.artist, a.cover_url, count(*)::int, round(avg(r.score), 1)
+  from public.ratings r join sim on sim.user_id = r.user_id join public.albums a on a.id = r.album_id
+  where r.score >= 8 and r.album_id not in (select album_id from me)
+  group by a.id, a.title, a.artist, a.cover_url
+  having count(*) >= 2
+  order by count(*) desc, avg(r.score) desc
+  limit least(greatest(p_limit, 1), 24);
+$$;
+revoke all on function public.recs_from_similar_listeners(int) from public, anon;
+grant execute on function public.recs_from_similar_listeners(int) to authenticated;

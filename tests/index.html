@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rotation unit tests</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; background: #171717; color: #f1efe9; margin: 0; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px; } p { color: #b3b0a8; margin: 0 0 16px; }
+  .row { padding: 6px 10px; border-bottom: 1px solid #2c2c2b; } .pass::before { content: "PASS  "; color: #5ecfb1; } .fail::before { content: "FAIL  "; color: #f07d73; }
+  #summary { margin: 16px 0; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Rotation unit tests</h1>
+<p>Plain browser tests for the pure logic in <code>lib.js</code>. Open this file through any static server (or the dev preview) and read the summary. No dependencies.</p>
+<div id="summary">Running…</div>
+<div id="out"></div>
+<script src="../lib.js"></script>
+<script>
+const L = window.RotationLib, out = document.getElementById("out");
+let pass = 0, fail = 0;
+function test(name, fn) {
+  const row = document.createElement("div");
+  try { fn(); row.className = "row pass"; pass++; } catch (e) { row.className = "row fail"; fail++; name += " , " + e.message; }
+  row.textContent = name; out.appendChild(row);
+}
+const eq = (a, b, msg) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg || "expected"} ${JSON.stringify(a)} to equal ${JSON.stringify(b)}`); };
+const ok = (c, msg) => { if (!c) throw new Error(msg || "expected truthy"); };
+const row = (id, score, extra = {}) => ({ album_id: id, title: "Album " + id, artist: extra.artist || "Artist " + id, genres: extra.genres || [], score, first_rated_at: extra.at || "2026-03-10T00:00:00Z", cover_url: null });
+
+/* ---- taste comparison ---- */
+test("compare: no shared albums gives zeros and no similarity", () => {
+  const c = L.compareTaste([row("a", 8)], [row("b", 8)]);
+  eq(c.n, 0); eq(c.similarity, null); eq(c.enough, false); eq(c.love, []);
+});
+test("compare: a tiny sample never produces a similarity score", () => {
+  const a = [row("1", 9), row("2", 8), row("3", 3)], b = [row("1", 9), row("2", 8), row("3", 3)];
+  const c = L.compareTaste(a, b);
+  eq(c.n, 3); eq(c.similarity, null, "3 identical ratings must not claim a score"); eq(c.avgGap, 0);
+});
+test("compare: with 10+ shared ratings, identical taste is 100%", () => {
+  const a = Array.from({ length: 10 }, (_, i) => row("x" + i, 7)), c = L.compareTaste(a, a.map((r) => ({ ...r })));
+  eq(c.n, 10); eq(c.enough, true); eq(c.similarity, 100);
+});
+test("compare: love needs both 8+, differ needs a gap of 4+", () => {
+  const a = [row("1", 9), row("2", 8), row("3", 10), row("4", 5)], b = [row("1", 8), row("2", 7), row("3", 2), row("4", 5)];
+  const c = L.compareTaste(a, b);
+  eq(c.love.map((x) => x.album_id), ["1"]); eq(c.differ.map((x) => x.album_id), ["3"]);
+});
+test("compare: average gap and averages on shared albums only", () => {
+  const a = [row("1", 10), row("2", 6), row("only-a", 1)], b = [row("1", 8), row("2", 6), row("only-b", 10)];
+  const c = L.compareTaste(a, b);
+  eq(c.n, 2); eq(c.avgGap, 1); eq(c.avgA, 8); eq(c.avgB, 7);
+});
+test("genre overlap needs 8+ albums with genre data each", () => {
+  const few = Array.from({ length: 7 }, (_, i) => row("g" + i, 8, { genres: ["rock"] }));
+  eq(L.genreOverlap(few, few).sufficient, false);
+  const many = Array.from({ length: 8 }, (_, i) => row("g" + i, 8, { genres: ["rock", "folk"] }));
+  const o = L.genreOverlap(many, many);
+  eq(o.sufficient, true); ok(o.shared.includes("rock"));
+});
+
+/* ---- yearly recap ---- */
+test("recap counts only ratings first made in the year", () => {
+  const rows = [row("1", 9, { at: "2026-01-05T00:00:00Z" }), row("2", 7, { at: "2025-12-31T23:59:59Z" }), row("3", 5, { at: "2026-06-01T00:00:00Z" })];
+  const r = L.recapOf(rows, 2026);
+  eq(r.n, 2); eq(r.avg, 7); eq(r.byMonth[0].n, 1); eq(r.byMonth[5].n, 1);
+});
+test("recap trend needs 10+ ratings", () => {
+  const few = Array.from({ length: 9 }, (_, i) => row("t" + i, 5, { at: `2026-0${(i % 9) + 1}-01T00:00:00Z` }));
+  eq(L.recapOf(few, 2026).trend, null);
+  const many = Array.from({ length: 10 }, (_, i) => row("t" + i, i < 5 ? 4 : 9, { at: `2026-${String(i + 1).padStart(2, "0")}-01T00:00:00Z` }));
+  eq(L.recapOf(many, 2026).trend.direction, "up");
+});
+test("recap genres and artists need two or more albums", () => {
+  const rows = [row("1", 9, { genres: ["jazz"], artist: "A" }), row("2", 8, { genres: ["jazz"], artist: "A" }), row("3", 7, { genres: ["rock"], artist: "B" })];
+  const r = L.recapOf(rows, 2026);
+  eq(r.genres.map((g) => g.name), ["jazz"]); eq(r.artists.map((a) => a.name), ["A"]);
+});
+test("recap discoveries are loved albums few others rated", () => {
+  const rows = [row("1", 9), row("2", 9), row("3", 4)], counts = new Map([["1", 2], ["2", 500], ["3", 1]]);
+  eq(L.recapOf(rows, 2026, counts).discoveries.map((x) => x.album_id), ["1"]);
+});
+test("years with ratings are listed newest first", () => {
+  eq(L.yearsWithRatings([row("1", 5, { at: "2024-01-01" }), row("2", 5, { at: "2026-01-01" }), row("3", 5, { at: "2024-05-05" })]), ["2026", "2024"]);
+});
+test("an empty year yields a calm empty recap", () => { const r = L.recapOf([], 2026); eq(r.n, 0); eq(r.avg, null); eq(r.topRated, []); });
+
+/* ---- recommendations ---- */
+test("mergeRecs never returns an album that was already rated (by id or by title and artist)", () => {
+  const rated = [{ id: "r1", title: "Rated One", artist: "X" }, { title: "Same Name (Deluxe)", artist: "Y" }];
+  const groups = [{ rule: "genre", items: [{ id: "r1", title: "Rated One", artist: "X" }, { id: "n1", title: "Fresh", artist: "Z" }, { title: "Same Name", artist: "Y" }] }];
+  eq(L.mergeRecs(groups, rated).map((x) => x.title), ["Fresh"]);
+});
+test("mergeRecs de-duplicates and keeps rule order", () => {
+  const groups = [{ rule: "a", items: [{ title: "One", artist: "A" }] }, { rule: "b", items: [{ title: "one", artist: "a" }, { title: "Two", artist: "B" }] }];
+  const m = L.mergeRecs(groups, []);
+  eq(m.map((x) => x.rule + ":" + x.title), ["a:One", "b:Two"]);
+});
+test("mergeRecs respects the limit", () => { eq(L.mergeRecs([{ rule: "a", items: Array.from({ length: 30 }, (_, i) => ({ title: "T" + i, artist: "A" })) }], [], 5).length, 5); });
+test("tasteProfile needs repeat evidence for genres and 8+ averages for artists", () => {
+  const rows = [row("1", 9, { genres: ["folk"], artist: "A" }), row("2", 8, { genres: ["folk"], artist: "A" }), row("3", 7, { genres: ["rock"], artist: "B" }), row("4", 3, { genres: ["pop"], artist: "C" })];
+  const t = L.tasteProfile(rows);
+  eq(t.genres.map((g) => g.name), ["folk"]); eq(t.artists.map((a) => a.name), ["A"]);
+});
+
+document.getElementById("summary").textContent = `${pass} passed, ${fail} failed`;
+document.getElementById("summary").style.color = fail ? "#f07d73" : "#5ecfb1";
+</script>
+</body>
+</html>
