@@ -110,6 +110,61 @@
   document.querySelector("#authClose").click();
   user = { id: "x", email: "test@example.com" };
 
+  /* ---- profile setup, list creation and reporting ---- */
+  const writes = [], rpcs = [];
+  const stubDb = ({ fail = {}, returns = {}, tables = {} } = {}) => {
+    sb.from = (tb) => { let op = null, payload = null;
+      const out = () => { if (op) { writes.push({ tb, op, payload }); if (fail[tb]) return { data: null, error: fail[tb] }; return { data: returns[tb] ? { ...payload, ...returns[tb] } : payload, error: null }; }
+        return { data: tables[tb] ?? [], error: null, count: 0 }; };
+      const p = new Proxy(function () {}, { get: (_, k) => { if (k === "then") return (f, r) => Promise.resolve(out()).then(f, r);
+        if (["upsert", "insert", "update"].includes(k)) return (d) => { op = k; payload = d; return p; };
+        if (k === "delete") return () => { op = "delete"; return p; };
+        if (k === "single" || k === "maybeSingle") return () => Promise.resolve(op ? out() : { data: Array.isArray(tables[tb]) ? (tables[tb][0] ?? null) : (tables[tb] ?? null), error: null });
+        return () => p; }, apply: () => p }); return p; };
+    sb.rpc = (name, args) => { rpcs.push({ name, args }); const e = fail["rpc:" + name]; return Promise.resolve({ data: null, error: e || null }); };
+  };
+  const setVal = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); };
+  const submit = async (formSel) => { document.querySelector(formSel).dispatchEvent(new Event("submit", { cancelable: true, bubbles: true })); await wait(600); };
+
+  user = { id: "x", email: "test@example.com" }; profile = null; writes.length = 0;
+  stubDb(); location.hash = "#/"; await wait(300);
+  await renderProfileEdit(); await wait(600);
+  setVal("#pUser", "ab"); await submit("#pform");
+  check("a too-short username is rejected before anything is written", !document.querySelector("#pError").hidden && writes.length === 0);
+  setVal("#pUser", "Tester_One"); setVal("#pBio", "Hello");
+  await submit("#pform");
+  const prow = writes.find((w) => w.tb === "profiles")?.payload || {};
+  check("profile saves a lowercased username", prow.username === "tester_one", JSON.stringify(prow));
+  check("a new profile starts private", prow.is_public === false);
+  check("a new profile defaults to showing ratings (once public) and is owned by the signed-in user", prow.show_ratings === true && prow.user_id === "x");
+  writes.length = 0; profile = null;
+  stubDb({ fail: { profiles: { code: "23505", message: "duplicate key" } } });
+  await renderProfileEdit(); await wait(600); setVal("#pUser", "taken_name"); await submit("#pform");
+  check("a taken username shows a clear message", /taken/i.test(document.querySelector("#pError").textContent) && !document.querySelector("#pError").hidden);
+
+  writes.length = 0; stubDb({ returns: { lists: { id: "11111111-1111-4111-8111-111111111111" } } });
+  const holder = document.querySelector("#view"); holder.innerHTML = '<div id="lh"></div>';
+  await renderMyLists(document.querySelector("#lh")); await wait(500);
+  setVal("#lTitle", "   "); await submit("#newList");
+  check("an empty list title is rejected without a write", writes.length === 0 && !document.querySelector("#lError").hidden);
+  setVal("#lTitle", "Albums For A Night Drive"); document.querySelector("#lPublic").checked = true; await submit("#newList");
+  const lrow = writes.find((w) => w.tb === "lists")?.payload || {};
+  check("creating a list sends title, description and visibility only", JSON.stringify(Object.keys(lrow).sort()) === JSON.stringify(["description", "is_public", "title"]) && lrow.title === "Albums For A Night Drive" && lrow.is_public === true, JSON.stringify(lrow));
+  check("after creating, it opens the new list", location.hash === "#/list/11111111-1111-4111-8111-111111111111", location.hash);
+
+  rpcs.length = 0; stubDb();
+  openReportDialog({ type: "review", id: "abc-123", label: "this review" }); await wait(300);
+  document.querySelector("dialog[open] #rpReason").value = "harassment";
+  document.querySelector("dialog[open] form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true })); await wait(500);
+  const rep = rpcs.find((c) => c.name === "report_content");
+  check("a report calls report_content with type, id and reason", rep && rep.args.p_type === "review" && rep.args.p_id === "abc-123" && rep.args.p_reason === "harassment", JSON.stringify(rep));
+  check("the report dialog closes after sending", !document.querySelector("dialog[open]"));
+  stubDb({ fail: { "rpc:report_content": { message: "You can't report your own content." } } });
+  openReportDialog({ type: "review", id: "mine", label: "this review" }); await wait(300);
+  document.querySelector("dialog[open] form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true })); await wait(500);
+  check("a refused report shows the reason and stays open", /own content/.test(document.querySelector("dialog[open] #rpError")?.textContent || ""));
+  document.querySelector("dialog[open] [data-close]")?.click();
+
   const fails = results.filter((r) => r.startsWith("FAIL")).length;
   results.forEach((r) => console.log(r));
   console.log(fails ? `${fails} FAILED` : `All ${results.length} checks passed`);
