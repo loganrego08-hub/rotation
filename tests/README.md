@@ -47,3 +47,9 @@ level only.
 - `api/delete-account.js` on the deployed site. Its logic (method, missing key, missing token, wrong confirmation, expired session, deleting only the token's own user) was exercised once against a pasted copy with a stubbed fetch, not the deployed function. It needs the `SUPABASE_SERVICE_ROLE_KEY` environment variable in Vercel; until that is set it answers 501 and the app says deletion isn't available.
 - Real emails (sign-up confirmation, password reset). The Supabase Auth URL settings must include the live site.
 - Real sign-in sessions, and anything involving two people at once in the browser.
+
+## Measured, not just tested
+
+- Layout shift (CLS) was measured in a browser on the home page, Explore and an album page at desktop width, and on the album page at 390 px: 0 after reserving the page height (it was 0.19 before, caused by the footer jumping). Re-measure with a `PerformanceObserver` for `layout-shift` after layout changes.
+- Color contrast of every design-token text/background pair was computed; all pass WCAG AA 4.5:1.
+- An automated check for missing accessible names, duplicate ids, heading levels and missing image text found nothing on about 20 signed-out pages and 8 signed-in screens (the signed-in ones rendered with stubbed data).
