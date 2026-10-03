@@ -98,5 +98,41 @@
     return { genres: rank(g, 2), artists: rank(a, 1).filter((x) => x.avg >= 8) };
   }
 
-  root.RotationLib = { mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  /* ---------- Search and album labels ---------- */
+  // MusicBrainz is case-insensitive. User text is escaped so characters like : ( or " can't break the query.
+  const lucene = (s) => String(s).replace(/([+\-&|!(){}\[\]^"~*?:\\\/])/g, "\\$1").trim();
+  function albumQuery(term, f = {}) {
+    const parts = [];
+    if (term) parts.push(`(${lucene(term)})`);
+    const t = f.type || "album";
+    if (["album", "ep", "single"].includes(t)) parts.push(`primarytype:${t}`);
+    else if (t !== "any") parts.push(`primarytype:album AND secondarytype:${t}`);
+    if (f.from || f.to) parts.push(`firstreleasedate:[${f.from || "0000"} TO ${f.to || "9999"}]`);
+    if (f.genre) parts.push(`tag:"${lucene(f.genre)}"`);
+    if (f.artist) parts.push(`artist:"${lucene(f.artist)}"`);
+    return parts.join(" AND ");
+  }
+  // "Studio album", "EP", "Compilation album", "Live album"... only what MusicBrainz actually lists
+  function typeLabel(rg) {
+    const p = rg["primary-type"], s = rg["secondary-types"] || [];
+    return s.length ? `${s.join(" + ")}${p ? " " + p.toLowerCase() : ""}` : p === "Album" ? "Studio album" : p || "";
+  }
+  // Same rule as the album_catalog view: 10+ ratings, a wide spread, and real camps on both sides
+  function spreadNote(counts) {
+    const n = counts.reduce((a, b) => a + b, 0);
+    if (n < 10) return "";
+    const m = counts.reduce((s, c, i) => s + c * (i + 1), 0) / n;
+    const sd = Math.sqrt(counts.reduce((s, c, i) => s + c * (i + 1 - m) ** 2, 0) / n);
+    const high = counts.slice(7).reduce((a, b) => a + b, 0) / n, low = counts.slice(0, 4).reduce((a, b) => a + b, 0) / n;
+    if (sd >= 2.5 && high >= 0.2 && low >= 0.2) return `Divisive: ${Math.round(high * 100)}% scored 8 or higher and ${Math.round(low * 100)}% scored 4 or lower.`;
+    return sd <= 1.4 ? "Broad agreement: most scores sit close together." : "";
+  }
+  // MusicBrainz rejects a search page when offset + limit passes 500, so a random page must start at or below 500 - limit
+  const MB_WINDOW = 500;
+  function randomPageOffset(count, limit, rand = Math.random) {
+    const reachable = Math.min(count || 0, MB_WINDOW);
+    return Math.floor(rand() * Math.max(1, reachable - limit + 1));
+  }
+
+  root.RotationLib = { lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);

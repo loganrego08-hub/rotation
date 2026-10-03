@@ -805,3 +805,6 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
   .album { grid-template-columns: minmax(0, 1fr); gap: var(--s-6); }
   .album__art { position: static; width: min(100%, 360px); margin-inline: auto; }
 }
+/* List entries: let long album titles wrap to two lines instead of cutting off early */
+.entry .list-card__title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: var(--lh-snug); }
+.entry__link { align-items: center; }

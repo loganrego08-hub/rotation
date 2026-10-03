@@ -2,6 +2,9 @@
 const cfg = window.ROTATION_CONFIG || {};
 const configured = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_ANON_KEY.startsWith("PASTE");
 const sb = configured ? supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+// Pure helpers (query building, labels, notes) live in lib.js so they can be unit tested
+const RL = window.RotationLib;
+const { lucene, albumQuery, typeLabel, spreadNote } = RL;
 const MB = "https://musicbrainz.org/ws/2";
 const CAA = "https://coverartarchive.org/release-group";
 const CHART = (slug) => `/api/chart?slug=${slug}`;
@@ -141,11 +144,6 @@ async function getAlbum(id) {
     genres: (rg.genres || []).sort((a, b) => b.count - a.count).slice(0, 4).map((g) => g.name),
     album_type: typeLabel(rg) || null,
   };
-}
-// "Studio album", "EP", "Compilation album", "Live album"... only what MusicBrainz actually lists
-function typeLabel(rg) {
-  const p = rg["primary-type"], s = rg["secondary-types"] || [];
-  return s.length ? `${s.join(" + ")}${p ? " " + p.toLowerCase() : ""}` : p === "Album" ? "Studio album" : p || "";
 }
 
 /* ==========================================================================
@@ -476,19 +474,6 @@ document.addEventListener("click", (e) => {
   if (link) { const input = $("[data-search]", link.closest(".search")); setResults(input, false); input.value = ""; }
 });
 
-// MusicBrainz is case-insensitive; user text is escaped so characters like : ( or " can't break the query
-const lucene = (s) => String(s).replace(/([+\-&|!(){}\[\]^"~*?:\\\/])/g, "\\$1").trim();
-function albumQuery(term, f = {}) {
-  const parts = [];
-  if (term) parts.push(`(${lucene(term)})`);
-  const t = f.type || "album";
-  if (["album", "ep", "single"].includes(t)) parts.push(`primarytype:${t}`);
-  else if (t !== "any") parts.push(`primarytype:album AND secondarytype:${t}`);
-  if (f.from || f.to) parts.push(`firstreleasedate:[${f.from || "0000"} TO ${f.to || "9999"}]`);
-  if (f.genre) parts.push(`tag:"${lucene(f.genre)}"`);
-  if (f.artist) parts.push(`artist:"${lucene(f.artist)}"`);
-  return parts.join(" AND ");
-}
 // The same title by the same artist can appear more than once; keep the best-ranked one.
 // Alternate editions are already merged into one release group by MusicBrainz.
 const rgKey = (g) => norm(g.title) + "|" + norm(artistName(g["artist-credit"]));
@@ -852,7 +837,8 @@ async function appleArt(artist, title) {
   const key = "art:" + norm(artist) + "|" + norm(title);
   try { const hit = sessionStorage.getItem(key); if (hit !== null) return hit || null; } catch {}
   let art = null;
-  try {
+  // Set APPLE_ART: false in config.js to stop using Apple artwork entirely (see CLAUDE.md, "Sources and rights")
+  if (cfg.APPLE_ART !== false) try {
     const qs = new URLSearchParams({ term: `${artist} ${title}`, entity: "album", country: "us", limit: "5" });
     const j = await getJSON(`https://itunes.apple.com/search?${qs}`);
     const a = norm(artist).slice(0, 6), t = norm(title).slice(0, 8);
@@ -1268,16 +1254,6 @@ async function persistAlbum(a) {
 const apiError = (e) => /row-level security|jwt|not authenticated/i.test(e?.message || "") ? "Please sign in again." : (e?.message || "Something went wrong.");
 
 // Plain-language read of the distribution, computed only from the numbers shown. Needs enough ratings to mean anything.
-// Same rule as the album_catalog view: 10+ ratings, wide spread and real camps on both sides
-function spreadNote(counts) {
-  const n = counts.reduce((a, b) => a + b, 0);
-  if (n < 10) return "";
-  const mean = counts.reduce((s, c, i) => s + c * (i + 1), 0) / n;
-  const sd = Math.sqrt(counts.reduce((s, c, i) => s + c * (i + 1 - mean) ** 2, 0) / n);
-  const high = counts.slice(7).reduce((a, b) => a + b, 0) / n, low = counts.slice(0, 4).reduce((a, b) => a + b, 0) / n;
-  if (sd >= 2.5 && high >= 0.2 && low >= 0.2) return `Divisive: ${Math.round(high * 100)}% scored 8 or higher and ${Math.round(low * 100)}% scored 4 or lower.`;
-  return sd <= 1.4 ? "Broad agreement: most scores sit close together." : "";
-}
 function confidenceNote(n) {
   if (n < MIN_RATINGS) return `Based on ${plural(n, "rating")}. Too few to rank or compare with other albums.`;
   if (n < 10) return "Early read. The average can move a lot as more people rate.";
@@ -2529,7 +2505,7 @@ async function mbCandidates(f) {
   // MusicBrainz rejects any search page where offset + limit passes 500 (HTTP 400), so pick a random page inside that window
   const count = Math.min(first.count || 0, MB_WINDOW);
   if (!count) return [];
-  const off = Math.floor(Math.random() * Math.max(1, count - 25));
+  const off = RL.randomPageOffset(count, 25);
   const page = await mbSlow(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=25&offset=${off}`);
   return dedupeGroups(page["release-groups"] || []).filter(isStudioAlbum).map((g) => ({ id: g.id, title: g.title, artist: artistName(g["artist-credit"]), art: coverUrl(g.id, 500),
     year: year(g["first-release-date"]), genres: (g.tags || []).slice(0, 3).map((t) => t.name), source: "musicbrainz", tag }));
@@ -2606,7 +2582,6 @@ async function renderSurprise() {
    Taste comparison and Year in Rotation
    Both are computed in the browser from ratings the viewer is allowed to see (see lib.js).
    ========================================================================== */
-const RL = window.RotationLib;
 const thisYear = () => new Date().getFullYear();
 
 // One person's ratings in a common shape. Your own come from your tables; anyone else's from the public views,

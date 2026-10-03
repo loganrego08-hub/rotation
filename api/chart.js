@@ -77,6 +77,8 @@ async function billboardPage(slug) {
 }
 
 async function addArt(items) {
+  // Set the environment variable APPLE_ART=off in Vercel to stop using Apple artwork (falls back to Billboard's thumbnails)
+  if (process.env.APPLE_ART === "off") { items.forEach((it) => { it.art = it.fallbackArt || null; delete it.fallbackArt; }); return; }
   // Apple's top-albums feed covers most charting albums in one request
   try {
     const j = await (await fetch("https://itunes.apple.com/us/rss/topalbums/limit=200/json")).json();

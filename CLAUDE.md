@@ -57,6 +57,8 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Sources and rights: MusicBrainz metadata is CC0. Cover art is hot-linked from the Cover Art Archive and Apple for identification only, never downloaded,
   re-hosted or put into exported images. Apple's Search API terms limit artwork to promoting Apple store content, so treat Apple art as the riskiest
   source; Billboard genre charts are read from billboard.com pages, which may not be permitted by Billboard's terms. Both are flagged for the owner to decide.
+- Apple artwork can be switched off: `APPLE_ART: false` in config.js and env var `APPLE_ART=off` in Vercel (api/chart.js); art then comes from the Cover Art Archive.
+  `vercel.json` sets basic security headers (no CSP yet: the app uses inline `onerror` handlers, so a strict CSP would need those moved first).
 - See `tests/README.md` for the unit, database, API-security and manual test layers and which of the 12 flows have actually been run.
 - Library (`#/me`): `LIB_VIEWS` (All rated, Recently rated, Highest, Lowest, Favorites, Want to listen, Listened, With notes) x `LIB_SORTS`
   (date, rating, artist, title, release year; missing values always sort last; rating sorts hidden for Want to listen) + title/artist filter.

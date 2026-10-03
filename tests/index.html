@@ -105,6 +105,42 @@ test("tasteProfile needs repeat evidence for genres and 8+ averages for artists"
   eq(t.genres.map((g) => g.name), ["folk"]); eq(t.artists.map((a) => a.name), ["A"]);
 });
 
+/* ---- search, labels and paging (regression tests for real bugs) ---- */
+test("lucene escapes characters that break MusicBrainz queries", () => {
+  eq(L.lucene('AC/DC: "Back (in) Black"'), 'AC\\/DC\\: \\"Back \\(in\\) Black\\"');
+  eq(L.lucene("a+b-c"), "a\\+b\\-c");
+});
+test("albumQuery defaults to albums and joins filters", () => {
+  eq(L.albumQuery("nevermind", {}), "(nevermind) AND primarytype:album");
+  eq(L.albumQuery("", { type: "ep", from: "1990", to: "1999", genre: "jazz", artist: "Miles Davis" }), 'primarytype:ep AND firstreleasedate:[1990 TO 1999] AND tag:"jazz" AND artist:"Miles Davis"');
+});
+test("albumQuery handles open-ended years and secondary types", () => {
+  eq(L.albumQuery("x", { type: "live", from: "2000" }), "(x) AND primarytype:album AND secondarytype:live AND firstreleasedate:[2000 TO 9999]");
+  eq(L.albumQuery("x", { type: "any", to: "1979" }), "(x) AND firstreleasedate:[0000 TO 1979]");
+});
+test("albumQuery escapes user text inside quoted filters", () => {
+  eq(L.albumQuery("", { genre: 'rock"n"roll' }), 'primarytype:album AND tag:"rock\\"n\\"roll"');
+});
+test("typeLabel only reports what MusicBrainz lists", () => {
+  eq(L.typeLabel({ "primary-type": "Album" }), "Studio album");
+  eq(L.typeLabel({ "primary-type": "EP" }), "EP");
+  eq(L.typeLabel({ "primary-type": "Album", "secondary-types": ["Live"] }), "Live album");
+  eq(L.typeLabel({}), "");
+});
+test("random page offsets never pass MusicBrainz's 500 result window", () => {
+  for (const count of [0, 1, 24, 25, 26, 499, 500, 501, 10450, 69146]) for (const r of [0, 0.5, 0.9999999]) {
+    const off = L.randomPageOffset(count, 25, () => r);
+    ok(off >= 0 && off + 25 <= Math.max(25, L.MB_WINDOW), `count ${count} rand ${r} gave offset ${off}`);
+  }
+});
+test("spreadNote needs 10 ratings and real camps on both sides", () => {
+  eq(L.spreadNote([0, 0, 0, 0, 0, 0, 0, 0, 0, 9]), "", "9 ratings is too few");
+  eq(L.spreadNote([6, 0, 0, 0, 0, 0, 0, 0, 0, 6]).startsWith("Divisive"), true);
+  eq(L.spreadNote([0, 0, 0, 0, 0, 0, 10, 0, 0, 0]).startsWith("Broad agreement"), true);
+  eq(L.spreadNote([0, 0, 0, 0, 0, 12, 0, 0, 0, 0]).startsWith("Broad"), true);
+  eq(L.spreadNote([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), "");
+});
+
 document.getElementById("summary").textContent = `${pass} passed, ${fail} failed`;
 document.getElementById("summary").style.color = fail ? "#f07d73" : "#5ecfb1";
 </script>
