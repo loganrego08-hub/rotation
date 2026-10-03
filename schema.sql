@@ -383,3 +383,228 @@ where r.is_public and nullif(btrim(r.thoughts), '') is not null;
 
 grant select on public.public_profiles, public.public_pins, public.public_ratings, public.public_reviews,
   public.public_lists, public.public_list_items, public.album_reviews to anon, authenticated;
+-- v7: social layer (run in the Supabase SQL editor)
+-- Activity feed, review likes, reports with auto-hide, and notifications with preferences.
+-- Everything people can see about other people still passes the same public-profile rules as v6.
+-- Comments are deliberately not included: they need a moderation queue and filtering first.
+
+create table if not exists public.review_likes (
+  rating_id uuid not null references public.ratings(id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (rating_id, user_id)
+);
+create index if not exists review_likes_user_idx on public.review_likes (user_id, created_at desc);
+alter table public.review_likes enable row level security;
+create policy "Users see their own likes" on public.review_likes for select to authenticated using (auth.uid() = user_id);
+-- likes are written only by toggle_review_like()
+
+-- Reports. Nobody reads this table through the API: review it in the Supabase dashboard
+-- (set status to 'dismissed' to restore hidden content, 'actioned' once handled).
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  target_type text not null check (target_type in ('review', 'list', 'profile')),
+  target_id text not null,
+  reason text not null check (reason in ('spam', 'harassment', 'inappropriate', 'other')),
+  details text check (details is null or char_length(details) <= 500),
+  status text not null default 'open' check (status in ('open', 'dismissed', 'actioned')),
+  created_at timestamptz not null default now(),
+  unique (reporter_id, target_type, target_id)
+);
+create index if not exists reports_target_idx on public.reports (target_type, target_id, status);
+alter table public.reports enable row level security;
+
+-- Content with 3 or more open reports from different people is hidden from public views until reviewed.
+-- Lives in a schema the API does not expose. Views run functions as the caller, so anon and authenticated need execute here.
+create schema if not exists private;
+grant usage on schema private to anon, authenticated;
+create or replace function private.report_count(p_type text, p_id text) returns int language sql stable security definer set search_path = public as $$
+  select count(*)::int from public.reports where target_type = p_type and target_id = p_id and status = 'open';
+$$;
+revoke all on function private.report_count(text, text) from public;
+grant execute on function private.report_count(text, text) to anon, authenticated;
+
+create table if not exists public.notification_prefs (
+  user_id uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  follows boolean not null default true,   -- someone started following you
+  likes boolean not null default true,     -- people liked your review (grouped: one notification per review)
+  updated_at timestamptz not null default now()
+);
+alter table public.notification_prefs enable row level security;
+create policy "Users manage their own notification prefs" on public.notification_prefs for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Notifications are written only by the functions below and read through my_notifications.
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  kind text not null check (kind in ('follow', 'like')),
+  actor_id uuid references auth.users(id) on delete cascade,
+  rating_id uuid references public.ratings(id) on delete cascade,
+  album_id text,
+  album_title text,
+  total int not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  read_at timestamptz
+);
+create unique index if not exists notifications_like_uidx on public.notifications (user_id, rating_id) where kind = 'like';
+create unique index if not exists notifications_follow_uidx on public.notifications (user_id, actor_id) where kind = 'follow';
+create index if not exists notifications_user_idx on public.notifications (user_id, updated_at desc);
+alter table public.notifications enable row level security;
+
+create or replace view public.my_notifications as
+select n.id, n.kind, n.total, n.album_id, n.album_title, n.created_at, n.updated_at, n.read_at, p.username as actor_username
+from public.notifications n left join public.profiles p on p.user_id = n.actor_id and p.is_public
+where n.user_id = auth.uid();
+grant select on public.my_notifications to authenticated;
+
+create or replace function public.mark_notifications_read() returns void language sql security definer set search_path = public as $$
+  update public.notifications set read_at = now() where user_id = auth.uid() and read_at is null;
+$$;
+
+-- Following now also creates one (never repeated) notification, if the person wants those.
+create or replace function public.follow_user(p_username text) returns void language plpgsql security definer set search_path = public as $$
+declare target uuid; n int; m int;
+begin
+  if auth.uid() is null then raise exception 'Sign in to follow people.'; end if;
+  select user_id into target from public.profiles where username = lower(p_username) and is_public;
+  if target is null then raise exception 'That profile is not available.'; end if;
+  if target = auth.uid() then raise exception 'You can''t follow yourself.'; end if;
+  select count(*) into n from public.follows where follower_id = auth.uid();
+  if n >= 1000 then raise exception 'You are following the maximum number of people.'; end if;
+  insert into public.follows (follower_id, followee_id) values (auth.uid(), target) on conflict do nothing;
+  get diagnostics m = row_count;
+  if m > 0 and coalesce((select follows from public.notification_prefs where user_id = target), true) then
+    insert into public.notifications (user_id, kind, actor_id) values (target, 'follow', auth.uid())
+    on conflict (user_id, actor_id) where kind = 'follow' do nothing;
+  end if;
+end $$;
+
+-- Like or unlike a public review. One notification per review, updated with the running total.
+create or replace function public.toggle_review_like(p_rating uuid) returns jsonb language plpgsql security definer set search_path = public as $$
+declare r record; had boolean; total int;
+begin
+  if auth.uid() is null then raise exception 'Sign in to like reviews.'; end if;
+  select id, user_id, album_id into r from public.ratings
+   where id = p_rating and is_public and nullif(btrim(thoughts), '') is not null and private.report_count('review', id::text) < 3;
+  if r.id is null then raise exception 'That review is not available.'; end if;
+  if r.user_id = auth.uid() then raise exception 'You can''t like your own review.'; end if;
+  delete from public.review_likes where rating_id = p_rating and user_id = auth.uid() returning true into had;
+  if had is null then
+    if (select count(*) from public.review_likes where user_id = auth.uid() and created_at > now() - interval '1 hour') >= 200 then
+      raise exception 'Slow down a little and try again.';
+    end if;
+    insert into public.review_likes (rating_id, user_id) values (p_rating, auth.uid());
+    select count(*)::int into total from public.review_likes where rating_id = p_rating;
+    if coalesce((select likes from public.notification_prefs where user_id = r.user_id), true) then
+      insert into public.notifications (user_id, kind, rating_id, album_id, album_title, total)
+      select r.user_id, 'like', p_rating, a.id, a.title, total from public.albums a where a.id = r.album_id
+      on conflict (user_id, rating_id) where kind = 'like' do update
+        set total = excluded.total, updated_at = now(),
+            read_at = case when excluded.total > public.notifications.total then null else public.notifications.read_at end;
+    end if;
+  end if;
+  return jsonb_build_object('liked', had is null, 'count', (select count(*)::int from public.review_likes where rating_id = p_rating));
+end $$;
+
+create or replace function public.report_content(p_type text, p_id text, p_reason text, p_details text default null) returns void language plpgsql security definer set search_path = public as $$
+declare owner uuid;
+begin
+  if auth.uid() is null then raise exception 'Sign in to report content.'; end if;
+  if p_reason not in ('spam', 'harassment', 'inappropriate', 'other') then raise exception 'Pick a reason.'; end if;
+  if p_type = 'review' then
+    select user_id into owner from public.ratings where id::text = p_id and is_public and nullif(btrim(thoughts), '') is not null;
+  elsif p_type = 'list' then
+    select user_id into owner from public.lists where id::text = p_id and is_public;
+  elsif p_type = 'profile' then
+    select user_id into owner from public.profiles where username = lower(p_id) and is_public;
+  else raise exception 'Unknown content type.'; end if;
+  if owner is null then raise exception 'That content is not available.'; end if;
+  if owner = auth.uid() then raise exception 'You can''t report your own content.'; end if;
+  if (select count(*) from public.reports where reporter_id = auth.uid() and created_at > now() - interval '1 day') >= 20 then
+    raise exception 'You''ve reached today''s report limit.';
+  end if;
+  insert into public.reports (reporter_id, target_type, target_id, reason, details)
+  values (auth.uid(), p_type, case when p_type = 'profile' then lower(p_id) else p_id end, p_reason, nullif(btrim(p_details), ''))
+  on conflict (reporter_id, target_type, target_id) do nothing;
+end $$;
+
+-- Activity from people you follow, newest first, paged with a (time, key) cursor. Only public profiles appear.
+-- Ratings need show_ratings; reviews need the writer to have credited them to their profile; favorites are the pinned albums.
+create or replace function public.get_feed(p_ts timestamptz default null, p_key text default null, p_limit int default 20)
+returns table (kind text, event_key text, happened_at timestamptz, actor_username text, actor_name text, actor_avatar text,
+  album_id text, album_title text, album_artist text, cover_url text, score int, body text, rating_id uuid,
+  list_id uuid, list_title text, list_count int, covers text[])
+language sql stable security definer set search_path = public as $$
+  with actors as (
+    select p.user_id, p.username, coalesce(nullif(btrim(p.display_name), ''), p.username) as name, av.cover_url as avatar, p.show_ratings
+    from public.profiles p join public.follows f on f.followee_id = p.user_id and f.follower_id = auth.uid()
+    left join public.albums av on av.id = p.avatar_album_id
+    where p.is_public
+  ), raw as (
+    select (case when x.rev then 'review' else 'rating' end)::text as kind, ('r:' || r.id::text)::text as event_key,
+           (case when x.rev then r.updated_at else r.created_at end) as happened_at,
+           a.username, a.name, a.avatar, al.id as album_id, al.title as album_title, al.artist as album_artist, al.cover_url,
+           (case when a.show_ratings then r.score end)::int as score, (case when x.rev then r.thoughts end) as body,
+           (case when x.rev then r.id end) as rating_id,
+           null::uuid as list_id, null::text as list_title, null::int as list_count, null::text[] as covers
+    from public.ratings r join actors a on a.user_id = r.user_id join public.albums al on al.id = r.album_id
+    cross join lateral (select (r.credit_profile and r.is_public and nullif(btrim(r.thoughts), '') is not null and private.report_count('review', r.id::text) < 3) as rev) x
+    where a.show_ratings or x.rev
+    union all
+    select 'list', 'l:' || l.id::text, l.created_at, a.username, a.name, a.avatar, null, null, null, null, null::int, l.description, null::uuid,
+           l.id, l.title,
+           (select count(*)::int from public.list_items i where i.list_id = l.id),
+           (select array_agg(al.cover_url order by i.position) from (select album_id, position from public.list_items where list_id = l.id order by position limit 4) i join public.albums al on al.id = i.album_id)
+    from public.lists l join actors a on a.user_id = l.user_id
+    where l.is_public and private.report_count('list', l.id::text) < 3 and exists (select 1 from public.list_items i where i.list_id = l.id)
+    union all
+    select 'pin', 'p:' || n.user_id::text || ':' || n.album_id, n.created_at, a.username, a.name, a.avatar, al.id, al.title, al.artist, al.cover_url, null::int, null, null::uuid,
+           null::uuid, null, null::int, null::text[]
+    from public.profile_pins n join actors a on a.user_id = n.user_id join public.albums al on al.id = n.album_id
+  )
+  select * from raw
+  where p_ts is null or (raw.happened_at, raw.event_key) < (p_ts, coalesce(p_key, 'zzzz'))
+  order by raw.happened_at desc, raw.event_key desc
+  limit least(greatest(p_limit, 1), 50);
+$$;
+
+revoke all on function public.follow_user(text), public.toggle_review_like(uuid), public.report_content(text, text, text, text),
+  public.get_feed(timestamptz, text, int), public.mark_notifications_read() from public, anon;
+grant execute on function public.follow_user(text), public.toggle_review_like(uuid), public.report_content(text, text, text, text),
+  public.get_feed(timestamptz, text, int), public.mark_notifications_read() to authenticated;
+
+-- Reviews now carry like counts and hide once reported. New columns go at the end of each view.
+create or replace view public.album_reviews as
+select r.id, r.album_id,
+       case when r.credit_profile and p.is_public then coalesce(nullif(btrim(p.display_name), ''), p.username)
+            else coalesce(nullif(btrim(r.display_name), ''), 'Anonymous listener') end as author,
+       r.score, r.thoughts as body, r.standout_tracks, r.updated_at,
+       (r.user_id = auth.uid()) as is_mine,
+       case when r.credit_profile and p.is_public then p.username end as author_username,
+       (select count(*) from public.review_likes l where l.rating_id = r.id)::int as like_count,
+       exists (select 1 from public.review_likes l where l.rating_id = r.id and l.user_id = auth.uid()) as liked_by_me
+from public.ratings r left join public.profiles p on p.user_id = r.user_id
+where r.is_public and nullif(btrim(r.thoughts), '') is not null and private.report_count('review', r.id::text) < 3;
+
+create or replace view public.public_reviews as
+select p.username, a.id as album_id, a.title, a.artist, a.cover_url,
+  case when p.show_ratings then r.score end as score, r.thoughts as body, r.updated_at
+from public.ratings r join public.profiles p on p.user_id = r.user_id and p.is_public join public.albums a on a.id = r.album_id
+where r.credit_profile and r.is_public and nullif(btrim(r.thoughts), '') is not null and private.report_count('review', r.id::text) < 3;
+
+create or replace view public.public_lists as
+select l.id, p.username, l.title, l.description, l.created_at, l.updated_at,
+  (select count(*) from public.list_items i where i.list_id = l.id)::int as item_count,
+  (select array_agg(a.cover_url order by i.position) from (select album_id, position from public.list_items where list_id = l.id order by position limit 4) i
+     join public.albums a on a.id = i.album_id) as covers
+from public.lists l join public.profiles p on p.user_id = l.user_id and p.is_public
+where l.is_public and private.report_count('list', l.id::text) < 3;
+
+create or replace view public.public_list_items as
+select i.list_id, i.position, p.username, a.id as album_id, a.title, a.artist, a.cover_url
+from public.list_items i join public.lists l on l.id = i.list_id and l.is_public and private.report_count('list', l.id::text) < 3
+join public.profiles p on p.user_id = l.user_id and p.is_public join public.albums a on a.id = i.album_id;
+
+grant select on public.album_reviews, public.public_reviews, public.public_lists, public.public_list_items to anon, authenticated;

@@ -165,6 +165,8 @@ const ICONS = {
   bookmark: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
   heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  bell: '<path d="M6 17h12l-1.5-2v-5a4.5 4.5 0 0 0-9 0v5zM10 20a2 2 0 0 0 4 0"/>',
+  flag: '<path d="M5 21V4M5 5h11l-2 4 2 4H5"/>',
   pin: '<path d="M12 17v5M8 3h8l-1 6 3 3H6l3-3z"/>',
   share: '<path d="M12 15V4M8 8l4-4 4 4M5 13v6h14v-6"/>',
 };
@@ -224,7 +226,7 @@ function listCard(r, rank) {
     ${scoreChip(r.score, { mine: true })}</a>`;
 }
 
-function reviewCard({ name, date, score, body, standouts = [], mine = false, href }) {
+function reviewCard({ name, date, score, body, standouts = [], mine = false, href, footer = "" }) {
   return `<article class="review-card">
     <header class="review-card__head">
       <span class="avatar" aria-hidden="true">${esc(name.charAt(0).toUpperCase())}</span>
@@ -233,6 +235,7 @@ function reviewCard({ name, date, score, body, standouts = [], mine = false, hre
     </header>
     <p class="review-card__body${body ? "" : " review-card__body--empty"}">${body ? esc(body) : "No notes yet. Add a few thoughts below."}</p>
     ${standouts.length ? `<div class="chips">${standouts.map((t) => `<span class="chip chip--static">${icon("star")}${esc(t)}</span>`).join("")}</div>` : ""}
+    ${footer}
   </article>`;
 }
 
@@ -322,12 +325,15 @@ function renderAccount() {
   const el = $("#account");
   if (!sb) { el.innerHTML = ""; return; }
   if (!user) { el.innerHTML = button("Sign in", { variant: "primary", size: "sm", id: "signIn" }); $("#signIn").onclick = openAuth; return; }
-  el.innerHTML = `<button type="button" class="avatar" id="acctBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">${profile?.avatar_cover ? `<img src="${esc(smallArt(profile.avatar_cover))}" alt="" onerror="this.remove()">` : esc(displayName().charAt(0).toUpperCase())}</button>
+  el.innerHTML = `<a class="icon-btn bell" id="bell" href="#/notifications" aria-label="Notifications">${icon("bell")}<span class="bell__badge" id="bellBadge" hidden></span></a>
+    <button type="button" class="avatar" id="acctBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">${profile?.avatar_cover ? `<img src="${esc(smallArt(profile.avatar_cover))}" alt="" onerror="this.remove()">` : esc(displayName().charAt(0).toUpperCase())}</button>
     <div class="menu menu--account" id="acctMenu" role="menu" hidden>
       <div class="menu__label">${esc(user.email)}</div>
       <a class="menu__item" role="menuitem" href="#/me">${icon("disc")}Your shelf</a>
       <a class="menu__item" role="menuitem" href="${profile ? profileHref(profile.username) : "#/me/edit"}">${icon("user")}${profile ? "Your profile" : "Create profile"}</a>
       <a class="menu__item" role="menuitem" href="#/lists/yours">${icon("list")}Your lists</a>
+      <a class="menu__item" role="menuitem" href="#/feed">${icon("spark")}Following</a>
+      <a class="menu__item" role="menuitem" href="#/notifications">${icon("bell")}Notifications</a>
       <button type="button" class="menu__item" role="menuitem" id="signOut">${icon("logout")}Sign out</button>
     </div>`;
   const btn = $("#acctBtn"), menu = $("#acctMenu");
@@ -665,6 +671,10 @@ async function renderHome() {
       </div>
       <div class="hero__mosaic" id="mosaic" aria-label="Top albums on this week's Billboard 200">${Array.from({ length: 6 }, () => `<div class="sk art"></div>`).join("")}</div>
     </section>
+    <section class="section" id="feedShelf" hidden>
+      ${sectionHead("From people you follow", { sub: "Latest activity from public profiles you follow", link: "#/feed", linkLabel: "See all" })}
+      <div class="feed"></div>
+    </section>
     <section class="section" id="recShelf" hidden>
       ${sectionHead("Recommended for you", { sub: "", id: "recWhy" })}
       <div class="row" id="recs">${skCards(6)}</div>
@@ -684,6 +694,7 @@ async function renderHome() {
     ${homeSection("sec-gems", "Hidden gems", "", { link: "#/explore", linkLabel: "Explore" })}
     ${homeSection("sec-recent", "Recently reviewed", "", { link: "#/search", linkLabel: "Find albums" })}`;
   loadHeroMosaic();
+  loadHomeFeed();
   loadRecs();
   runSection("sec-trending", loadTrending);
   runSection("sec-new", loadNewReleases, { defer: true });
@@ -1163,7 +1174,7 @@ async function renderAlbum(id) {
       user ? sb.from("ratings").select("*").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
       sb.from("album_score_counts").select("score, n").eq("album_id", id),
       user ? sb.from("album_status").select("listened, want, favorite").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
-      sb.from("album_reviews").select("*").eq("album_id", id).order("updated_at", { ascending: false }).limit(20),
+      sb.from("album_reviews").select("*").eq("album_id", id).order("updated_at", { ascending: false }).limit(100),
       user ? sb.from("profile_pins").select("album_id, position") : Promise.resolve({ data: null }),
     ]);
     S.pins = pn.data || [];
@@ -1264,6 +1275,7 @@ async function renderAlbum(id) {
             <input id="displayNameInput" class="input" maxlength="40" placeholder="Anonymous listener" value="${esc(S.mine?.display_name || "")}" autocomplete="off">
           </label>
           <span class="field__hint" id="reviewHint"></span>
+          <div><button type="button" class="btn btn--ghost btn--sm" id="delReview" data-danger="1"${S.mine?.thoughts ? "" : " hidden"}>${icon("close")}<span>Delete review</span></button></div>
         </section>
 
         <div class="save-bar">
@@ -1272,9 +1284,10 @@ async function renderAlbum(id) {
         </div>
 
         <section class="block" id="reviews" aria-labelledby="rev-h">
-          <div class="block__head"><h2 class="t-section" id="rev-h">Community reviews</h2>${reviews.length ? `<span class="t-meta">${plural(reviews.length, "review")}</span>` : ""}</div>
-          ${reviews.length ? `<div class="reviews">${reviews.map((r) => reviewCard({ name: r.author, date: r.updated_at, score: r.score, body: r.body, standouts: r.standout_tracks || [], href: r.author_username ? profileHref(r.author_username) : null })).join("")}</div>`
-            : emptyState({ iconName: "note", title: "No written reviews yet", body: "Reviews appear here when listeners choose to share them. Notes stay private unless the writer shares them.", plain: true })}
+          <div class="block__head"><h2 class="t-section" id="rev-h">Community reviews</h2><span class="t-meta" id="revCount" role="status" aria-live="polite"></span></div>
+          ${reviews.length > 1 ? `<label class="field field--inline"><span class="sr">Sort reviews</span><select class="select" id="revSort" aria-label="Sort reviews">
+            <option value="recent">Most recent</option><option value="high">Highest rated</option><option value="low">Lowest rated</option><option value="liked">Most liked</option></select></label>` : ""}
+          <div id="revList"></div><div id="revMore"></div>
         </section>
       </div>
     </article>
@@ -1298,6 +1311,7 @@ async function renderAlbum(id) {
     $("#jumpRate span").textContent = S.mine ? "Edit your rating" : "Rate this album";
     $("#save span").textContent = S.mine ? "Save review and standouts" : "Save rating and review";
     $("#remove").hidden = !S.mine;
+    $("#delReview").hidden = !S.mine?.thoughts;
   };
   const paintStatus = () => {
     const focused = document.activeElement?.dataset?.st;
@@ -1364,6 +1378,41 @@ async function renderAlbum(id) {
     S.status = data; paintStatus();
     toast(key === "favorite" ? (data.favorite ? "Added to favorites" : "Removed from favorites") : data.want ? "Added to Want to listen" : data.listened ? "Marked as listened" : "Status cleared", data.favorite || data.want || data.listened ? "success" : "info");
   }
+
+  /* ----- community reviews: sort, show more, like, report ----- */
+  const R = { sort: "recent", shown: 10 };
+  const recentFirst = (a, b) => String(b.updated_at).localeCompare(String(a.updated_at));
+  const REVIEW_SORTS = { recent: recentFirst, high: (a, b) => b.score - a.score || recentFirst(a, b), low: (a, b) => a.score - b.score || recentFirst(a, b),
+    liked: (a, b) => (b.like_count || 0) - (a.like_count || 0) || recentFirst(a, b) };
+  const reviewFooter = (r) => `<footer class="review-card__foot">
+      <button type="button" class="btn btn--sm btn--ghost" data-like="${r.id}" aria-pressed="${!!r.liked_by_me}" aria-label="${r.liked_by_me ? "Unlike" : "Like"} this review">${icon("heart")}<span>${r.like_count || ""}</span></button>
+      <button type="button" class="btn btn--sm btn--ghost" data-report="${r.id}" aria-label="Report this review">${icon("flag")}<span>Report</span></button></footer>`;
+  const paintReviews = () => {
+    const sorted = [...reviews].sort(REVIEW_SORTS[R.sort]);
+    $("#revCount").textContent = reviews.length ? plural(reviews.length, "review") : "";
+    $("#revList").innerHTML = sorted.length
+      ? `<div class="reviews">${sorted.slice(0, R.shown).map((r) => reviewCard({ name: r.author, date: r.updated_at, score: r.score, body: r.body, standouts: r.standout_tracks || [],
+          href: r.author_username ? profileHref(r.author_username) : null, footer: reviewFooter(r) })).join("")}</div>`
+      : emptyState({ iconName: "note", title: "No written reviews yet", body: "Reviews appear here when listeners choose to share them. Notes stay private unless the writer shares them.", plain: true });
+    $("#revMore").innerHTML = sorted.length > R.shown ? `<button type="button" class="btn" id="revShowMore"><span>Show ${Math.min(10, sorted.length - R.shown)} more</span></button>` : "";
+  };
+  paintReviews();
+  $("#revSort")?.addEventListener("change", (e) => { R.sort = e.target.value; R.shown = 10; paintReviews(); });
+  $("#reviews").addEventListener("click", async (e) => {
+    if (e.target.closest("#revShowMore")) { R.shown += 10; paintReviews(); return; }
+    const like = e.target.closest("[data-like]"), rep = e.target.closest("[data-report]");
+    if (rep) return openReportDialog({ type: "review", id: rep.dataset.report, label: "this review" });
+    if (!like || needSignIn() || like.getAttribute("aria-busy") === "true") return;
+    const r = reviews.find((x) => x.id === like.dataset.like); if (!r) return;
+    like.setAttribute("aria-busy", "true");
+    const { data, error } = await sb.rpc("toggle_review_like", { p_rating: r.id });
+    like.removeAttribute("aria-busy");
+    if (error) return toast(apiError(error), "error");
+    r.liked_by_me = data.liked; r.like_count = data.count;
+    like.setAttribute("aria-pressed", String(data.liked));
+    like.setAttribute("aria-label", `${data.liked ? "Unlike" : "Like"} this review`);
+    $("span", like).textContent = data.count || "";
+  });
 
   /* ----- events ----- */
   const paintHint = () => {
@@ -1463,6 +1512,17 @@ async function renderAlbum(id) {
     $(".save-bar").classList.remove("is-dirty");
     paintAll(); toast(first ? "Rating saved" : "Saved");
     refreshCommunity();
+  };
+  // Deletes only the written review (and its sharing); the score and standout stars stay
+  $("#delReview").onclick = async () => {
+    if (!S.mine || !confirm("Delete your written review? Your score stays.")) return;
+    const btn = $("#delReview"); btn.setAttribute("aria-busy", "true");
+    const { data, error } = await sb.from("ratings").update({ thoughts: null, is_public: false, credit_profile: false, display_name: null }).eq("id", S.mine.id).select("*").single();
+    btn.removeAttribute("aria-busy");
+    if (error) return toast(`Couldn't delete the review: ${apiError(error)}`, "error");
+    S.mine = data;
+    $("#thoughts").value = ""; $("#isPublic").checked = false; $("#displayNameInput").value = ""; $("#creditProfile").checked = false;
+    paintHint(); paintAll(); toast("Review deleted", "info");
   };
   $("#remove").onclick = async () => {
     if (!S.mine || !confirm("Remove your rating for this album? Your review and standout stars for it will be deleted too.")) return;
@@ -1638,7 +1698,7 @@ async function renderPublicProfile(username) {
   ];
   const actions = own
     ? `${button("Edit profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}`
-    : `<button type="button" class="btn btn--sm${following ? "" : " btn--primary"}" id="followBtn" aria-pressed="${following}">${icon(following ? "check" : "user")}<span>${following ? "Following" : "Follow"}</span></button>${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}`;
+    : `<button type="button" class="btn btn--sm${following ? "" : " btn--primary"}" id="followBtn" aria-pressed="${following}">${icon(following ? "check" : "user")}<span>${following ? "Following" : "Follow"}</span></button>${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}${button("Report", { size: "sm", variant: "ghost", id: "reportProfile", iconName: "flag" })}`;
   const taste = ratingsVisible ? tasteOf(d.ratings) : null;
 
   const draw = () => {
@@ -1691,6 +1751,7 @@ async function renderPublicProfile(username) {
     else return toast("This profile is private. Make it public before sharing the link.", "info");
     try { await navigator.clipboard.writeText(data.url); toast("Link copied"); } catch { toast("Copy the link from your address bar", "info"); }
   };
+  $("#reportProfile")?.addEventListener("click", () => openReportDialog({ type: "profile", id: username, label: `@${username}` }));
   const fb = $("#followBtn");
   if (fb) fb.onclick = async () => {
     if (!user) return openAuth();
@@ -1871,7 +1932,7 @@ async function renderList(id) {
         · <span id="listCount">${plural(items.length, "album")}</span> · Updated ${fmtDate(String(list.updated_at).slice(0, 10), "short")} · <a class="textlink" href="#/lists/browse">Browse public lists</a></p>
       <h1 class="t-title">${esc(list.title)}</h1>
       ${list.description ? `<p class="t-lead">${esc(list.description)}</p>` : ""}
-      <div class="chips">${own ? `${button("Edit list", { size: "sm", id: "editList", iconName: "note" })}` : ""}${button("Share", { size: "sm", id: "shareList", iconName: "share" })}</div>
+      <div class="chips">${own ? `${button("Edit list", { size: "sm", id: "editList", iconName: "note" })}` : ""}${button("Share", { size: "sm", id: "shareList", iconName: "share" })}${own ? "" : button("Report", { size: "sm", variant: "ghost", id: "reportList", iconName: "flag" })}</div>
       ${own && list.is_public && profileNeedsPublic() ? `<p class="alert alert--warning" role="status">${icon("alert")}<span>This list is public, but your profile is private, so nobody else can see it. <a href="#/me/edit" style="text-decoration:underline">Make your profile public</a>.</span></p>` : ""}
       ${own && list.is_public && !profile ? `<p class="alert alert--warning" role="status">${icon("alert")}<span>Create a public profile so others can find this list. <a href="#/me/edit" style="text-decoration:underline">Set up profile</a>.</span></p>` : ""}
     </header>`;
@@ -1890,6 +1951,7 @@ async function renderList(id) {
       if (navigator.share && (!own || list.is_public)) { try { await navigator.share(data); } catch {} return; }
       try { await navigator.clipboard.writeText(location.href); toast(own && !list.is_public ? "Link copied. Only you can open it until the list is public." : "Link copied"); } catch { toast("Copy the link from your address bar", "info"); }
     };
+    $("#reportList")?.addEventListener("click", () => openReportDialog({ type: "list", id, label: "this list" }));
     if (!own) return;
     $("#entries").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-op]"); if (!b) return;
@@ -2002,6 +2064,178 @@ async function openListPicker(album, ensureAlbum) {
 }
 
 /* ==========================================================================
+   Social layer: activity feed, notifications, reports
+   ========================================================================== */
+const FEED_PAGE = 20;
+async function fetchFeed(cursor) {
+  const { data, error } = await sb.rpc("get_feed", { p_ts: cursor?.ts || null, p_key: cursor?.key || null, p_limit: FEED_PAGE });
+  if (error) throw error;
+  return data || [];
+}
+function feedItemHTML(e) {
+  const prof = profileHref(e.actor_username);
+  const when = `<time class="t-meta" datetime="${esc(e.happened_at)}" title="${esc(new Date(e.happened_at).toLocaleString())}">${esc(ago(e.happened_at))}</time>`;
+  const who = `<a class="feed__who" href="${prof}">${esc(e.actor_name)}</a>`;
+  const avatar = `<a href="${prof}" tabindex="-1" aria-hidden="true">${avatarHTML({ display_name: e.actor_name, username: e.actor_username, avatar_cover: e.actor_avatar })}</a>`;
+  let action, subject, art, body = "";
+  if (e.kind === "list") {
+    const covers = e.covers || [], n = Math.min(4, covers.length), href = `#/list/${e.list_id}`;
+    action = `${who} published a list`;
+    subject = `<a class="feed__title" href="${href}">${esc(e.list_title)}</a><span class="t-meta">${plural(e.list_count, "album")}</span>`;
+    art = `<a class="feed-item__art" href="${href}" tabindex="-1" aria-hidden="true"><span class="collage collage--${n}">${n ? covers.slice(0, n).map((c) => `<span class="collage__cell"><img src="${esc(smallArt(c))}" alt="" loading="lazy" onerror="this.remove()"></span>`).join("") : `<span class="collage__cell"></span>`}</span></a>`;
+    body = e.body || "";
+  } else {
+    const href = `#/album/${e.album_id}`;
+    action = `${who} ${e.kind === "review" ? "reviewed" : e.kind === "pin" ? "pinned a favorite" : "rated"}`;
+    subject = `<a class="feed__title" href="${href}">${esc(e.album_title)}</a><span class="t-meta">${esc(e.album_artist || "")}</span>${e.score != null ? scoreChip(e.score, { label: "Their score" }) : ""}`;
+    art = `<a class="feed-item__art" href="${href}" tabindex="-1" aria-hidden="true">${artwork(smallArt(e.cover_url), `${e.album_title} by ${e.album_artist}`)}</a>`;
+    body = e.kind === "review" ? e.body : "";
+  }
+  return `<article class="feed-item">${avatar}
+    <div class="feed-item__main"><p class="feed-item__line">${action} · ${when}</p>
+      <div class="feed-item__subject">${subject}</div>
+      ${body ? `<p class="feed-item__body">${esc(body)}</p>` : ""}</div>${art}</article>`;
+}
+
+async function renderFeed() {
+  document.title = "Following · Rotation";
+  if (!sb || !user) {
+    view().innerHTML = emptyState({ iconName: "user", title: "See what people you follow are listening to", body: "Sign in, follow a few listeners, and their ratings, reviews, lists and pinned favorites show up here.",
+      actions: button("Sign in", { variant: "primary", id: "feedSignIn" }) });
+    $("#feedSignIn")?.addEventListener("click", openAuth);
+    return;
+  }
+  view().innerHTML = `<header class="page-head"><h1 class="t-page">Following</h1>
+    <p class="t-lead">Ratings, reviews, new public lists and pinned favorites from people you follow. Only public profiles appear here.</p></header>
+    <div id="feedList" class="feed">${loadingLabel("Loading activity")}${skList(4)}</div><div id="feedMore"></div>`;
+  const list = $("#feedList"), more = $("#feedMore");
+  let cursor = null, loading = false, done = false, first = true;
+  const next = async () => {
+    if (loading || done) return;
+    loading = true;
+    more.innerHTML = first ? "" : `<button type="button" class="btn" aria-busy="true"><span>Loading…</span></button>`;
+    try {
+      const rows = await fetchFeed(cursor);
+      if (!list.isConnected) return;
+      if (first) list.innerHTML = "";
+      if (first && !rows.length) {
+        const { count } = await sb.from("follows").select("followee_id", { count: "exact", head: true });
+        list.innerHTML = count
+          ? emptyState({ iconName: "disc", title: "Nothing new yet", body: "The people you follow haven't rated, reviewed or published anything lately. Check back soon.", compact: true })
+          : emptyState({ iconName: "user", title: "You're not following anyone yet", body: "Find listeners through public lists or the reviews on album pages, open their profile, and tap Follow.",
+              actions: button("Browse public lists", { variant: "primary", href: "#/lists/browse" }), compact: true });
+        done = true; more.innerHTML = ""; return;
+      }
+      first = false;
+      list.insertAdjacentHTML("beforeend", rows.map(feedItemHTML).join(""));
+      const last = rows[rows.length - 1];
+      cursor = { ts: last.happened_at, key: last.event_key };
+      done = rows.length < FEED_PAGE;
+      more.innerHTML = done ? (list.children.length > 3 ? `<p class="t-meta" style="text-align:center">You're all caught up.</p>` : "") : `<div style="text-align:center"><button type="button" class="btn" id="feedLoad"><span>Load more</span></button></div>`;
+      $("#feedLoad")?.addEventListener("click", next);
+      // Also load the next page as the button scrolls into view
+      if (!done && "IntersectionObserver" in window) { const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { io.disconnect(); next(); } }, { rootMargin: "300px" }); const b = $("#feedLoad"); if (b) io.observe(b); }
+    } catch {
+      if (list.isConnected) { if (first) list.innerHTML = errorState({ title: "Couldn't load activity", retry: () => { first = true; loading = false; list.innerHTML = skList(4); next(); }, compact: false });
+        else more.innerHTML = errorState({ title: "Couldn't load more", retry: next }); }
+    } finally { loading = false; }
+  };
+  next();
+}
+
+// A short taste of the feed on Discover. Hidden when there is nothing to show.
+async function loadHomeFeed() {
+  const shelf = $("#feedShelf");
+  if (!shelf || !sb || !user) return;
+  try {
+    const rows = (await fetchFeed(null)).slice(0, 4);
+    if (!rows.length || !shelf.isConnected) return;
+    shelf.hidden = false;
+    $(".feed", shelf).innerHTML = rows.map(feedItemHTML).join("");
+  } catch {}
+}
+
+/* ---------- Notifications ---------- */
+async function refreshUnread() {
+  const badge = $("#bellBadge");
+  if (!badge || !sb || !user) return;
+  const { count, error } = await sb.from("my_notifications").select("id", { count: "exact", head: true }).is("read_at", null);
+  if (error || !$("#bellBadge")) return;
+  badge.hidden = !count;
+  badge.textContent = count > 9 ? "9+" : String(count || "");
+  $("#bell").setAttribute("aria-label", count ? `Notifications, ${count} unread` : "Notifications");
+}
+async function renderNotifications() {
+  document.title = "Notifications · Rotation";
+  if (!sb || !user) {
+    view().innerHTML = emptyState({ iconName: "user", title: "Sign in to see notifications", body: "You'll only hear about new followers and likes on your reviews.", actions: button("Sign in", { variant: "primary", id: "noteSignIn" }) });
+    $("#noteSignIn")?.addEventListener("click", openAuth);
+    return;
+  }
+  view().innerHTML = `<header class="page-head"><h1 class="t-page">Notifications</h1>
+    <p class="t-lead">Only two things notify you, and likes are grouped into one notification per review. Everything else stays quiet.</p></header>
+    <div id="noteList">${loadingLabel("Loading notifications")}${skList(3)}</div><section class="section" style="margin-top:var(--s-12)" id="prefs"></section>`;
+  const [{ data, error }, { data: pref }] = await Promise.all([
+    sb.from("my_notifications").select("*").order("updated_at", { ascending: false }).limit(50),
+    sb.from("notification_prefs").select("*").maybeSingle(),
+  ]);
+  if (!$("#noteList")) return;
+  if (error) $("#noteList").innerHTML = errorState({ title: "Couldn't load notifications", retry: renderNotifications, compact: false });
+  else {
+    const rows = data || [];
+    $("#noteList").innerHTML = rows.length ? `<ul class="notes">${rows.map((n) => {
+      const text = n.kind === "follow"
+        ? `${n.actor_username ? `<a class="textlink" href="${profileHref(n.actor_username)}">@${esc(n.actor_username)}</a>` : "Someone"} started following you`
+        : `${n.total === 1 ? "1 person" : `${n.total} people`} liked your review of <a class="textlink" href="#/album/${n.album_id}">${esc(n.album_title || "an album")}</a>`;
+      return `<li class="note${n.read_at ? "" : " is-unread"}">${icon(n.kind === "follow" ? "user" : "heart")}<span>${text}</span><time class="t-meta" datetime="${esc(n.updated_at)}">${esc(ago(n.updated_at))}</time></li>`; }).join("")}</ul>`
+      : emptyState({ iconName: "disc", compact: true, title: "You're all caught up", body: "New followers and likes on your reviews will show up here." });
+    if (rows.some((n) => !n.read_at)) sb.rpc("mark_notifications_read").then(() => refreshUnread());
+  }
+  const p = { follows: pref?.follows ?? true, likes: pref?.likes ?? true };
+  $("#prefs").innerHTML = `${sectionHead("Notification preferences", { sub: "Changes save right away" })}
+    <div class="form"><label class="check"><input type="checkbox" data-pref="follows"${p.follows ? " checked" : ""}><span>New followers<br><span class="t-meta">When someone follows you for the first time. Unfollowing and refollowing never notifies again.</span></span></label>
+    <label class="check"><input type="checkbox" data-pref="likes"${p.likes ? " checked" : ""}><span>Likes on my reviews<br><span class="t-meta">One notification per review with a running count, not one per like.</span></span></label></div>`;
+  $$("#prefs [data-pref]").forEach((cb) => cb.addEventListener("change", async () => {
+    p[cb.dataset.pref] = cb.checked;
+    const { error: e } = await sb.from("notification_prefs").upsert({ user_id: user.id, follows: p.follows, likes: p.likes }, { onConflict: "user_id" });
+    if (e) { cb.checked = !cb.checked; p[cb.dataset.pref] = cb.checked; return toast(`Couldn't save: ${apiError(e)}`, "error"); }
+    toast("Preferences saved");
+  }));
+}
+
+/* ---------- Reports ---------- */
+function openReportDialog({ type, id, label }) {
+  if (!sb) return toast("Reporting is offline right now", "error");
+  if (!user) return openAuth();
+  const dlg = document.createElement("dialog");
+  dlg.className = "dialog";
+  dlg.setAttribute("aria-labelledby", "rpTitle");
+  dlg.innerHTML = `<form class="dialog__body" method="dialog" novalidate>
+    <div class="dialog__head"><h2 class="dialog__title" id="rpTitle">Report ${esc(label)}</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close">${icon("close")}</button></div>
+    <p class="text-2" style="font-size:var(--fs-sm)">Reports are private. Content that several people report is hidden until it has been reviewed.</p>
+    <label class="field"><span class="field__label">Reason</span><select class="select" id="rpReason" style="width:100%">
+      <option value="spam">Spam or ads</option><option value="harassment">Harassment or hate</option><option value="inappropriate">Inappropriate content</option><option value="other">Something else</option></select></label>
+    <label class="field"><span class="field__label">Details <span class="t-meta">Optional</span></span><textarea class="textarea" id="rpDetails" maxlength="500" style="min-height:88px"></textarea></label>
+    <p id="rpError" class="alert alert--error" role="alert" hidden></p>
+    <div class="dialog__actions"><button type="button" class="btn btn--ghost" data-close>Cancel</button><button type="submit" class="btn btn--primary" id="rpSend"><span>Send report</span></button></div></form>`;
+  document.body.appendChild(dlg);
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.addEventListener("click", (e) => { if (e.target === dlg || e.target.closest("[data-close]")) dlg.close(); });
+  dlg.querySelector("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("#rpSend", dlg), err = $("#rpError", dlg);
+    btn.setAttribute("aria-busy", "true"); err.hidden = true;
+    const { error } = await sb.rpc("report_content", { p_type: type, p_id: String(id), p_reason: $("#rpReason", dlg).value, p_details: $("#rpDetails", dlg).value.trim() || null });
+    btn.removeAttribute("aria-busy");
+    if (error) { err.textContent = apiError(error); err.hidden = false; return; }
+    dlg.close(); toast("Thanks. Your report was sent.");
+  });
+  dlg.showModal();
+  $("#rpReason", dlg).focus();
+}
+
+/* ==========================================================================
    Router and nav
    ========================================================================== */
 function route() {
@@ -2012,12 +2246,15 @@ function route() {
   const section = h.startsWith("#/me") || own ? "me" : /^#\/(genre|genres|explore|decade)\b/.test(h) ? "explore" : /^#\/lists?\b/.test(h) ? "lists"
     : h.startsWith("#/search") ? "search" : h === "#/" || h === "#" ? "discover" : "";
   $$("[data-nav]").forEach((a) => (a.dataset.nav === section ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
+  refreshUnread();
   let m;
   if ((m = h.match(/^#\/album\/([0-9a-f-]{36})/i))) return renderAlbum(m[1]);
   if ((m = h.match(/^#\/artist\/([0-9a-f-]{36})/i))) return renderArtist(m[1]);
   if ((m = h.match(/^#\/find-artist\/(.+)$/))) return resolveArtist(decodeURIComponent(m[1]));
   if ((m = h.match(/^#\/find\/([^/]+)\/(.+)$/))) return resolveFind(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
   if ((m = h.match(/^#\/genre\/([a-z-]+)/))) return renderGenre(m[1]);
+  if (h === "#/feed") return renderFeed();
+  if (h === "#/notifications") return renderNotifications();
   if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})$/i))) return renderPublicProfile(m[1]);
   if ((m = h.match(/^#\/list\/([0-9a-f-]{36})$/i))) return renderList(m[1]);
   if (h === "#/me/edit") return renderProfileEdit();

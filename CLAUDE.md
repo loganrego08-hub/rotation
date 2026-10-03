@@ -29,6 +29,13 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   Never add user_id or email to a public view. Profiles start private; ratings can be hidden with `show_ratings`; a shared review
   appears on a profile only if the writer ticked "credit to profile" (`ratings.credit_profile`). Follow/unfollow go through RPCs only.
   Avatars are the cover of a chosen pinned album (or an initial); there is no file upload.
+- Social (schema v7): `#/feed` (RPC `get_feed`, keyset paged by (time, key), only public profiles you follow), `#/notifications`.
+  Review likes go through `toggle_review_like`, reports through `report_content`, notifications through `my_notifications` + `mark_notifications_read`.
+  Notify only on new followers and likes (grouped per review), both switchable in `notification_prefs`. No comments yet: they need moderation tooling first.
+  MODERATION: reports are not readable through the API. Review them in the Supabase dashboard (table `reports`); a review or list with 3+ open reports
+  is hidden from public views and the feed until you set those reports to `dismissed` (restore) or `actioned`.
+  Gotcha: views call functions as the CALLER, so any function used inside a public view needs EXECUTE for anon. `report_count` lives in the
+  unexposed `private` schema for that reason (so it isn't callable as an RPC). Don't move it back to `public`.
 - Library (`#/me`): `LIB_VIEWS` (All rated, Recently rated, Highest, Lowest, Favorites, Want to listen, Listened, With notes) x `LIB_SORTS`
   (date, rating, artist, title, release year; missing values always sort last; rating sorts hidden for Want to listen) + title/artist filter.
   Public lists are browsed at `#/lists/browse` from the `public_lists` view; list cards come from `listTile` (adaptive cover collage).
