@@ -67,7 +67,8 @@ async function billboardPage(slug) {
     items.push({
       rank: items.length + 1, title: decode(t[1]), artist: labels[0] || "",
       lastWeek: num(stats[0]), peak: num(stats[1]), weeks: num(stats[2]),
-      art: img && !/fallback|placeholder/.test(img) ? img.replace(/-\d+x\d+(\.\w+)$/, "-344x344$1") : null,
+      art: null, // filled from Apple below; Billboard's thumbnail is often an older album
+      fallbackArt: img && !/fallback|placeholder/.test(img) ? img.replace(/-\d+x\d+(\.\w+)$/, "-344x344$1") : null,
     });
     if (items.length >= 50) break;
   }
@@ -76,17 +77,28 @@ async function billboardPage(slug) {
 }
 
 async function addArt(items) {
+  // Apple's top-albums feed covers most charting albums in one request
+  try {
+    const j = await (await fetch("https://itunes.apple.com/us/rss/topalbums/limit=200/json")).json();
+    const byTitle = new Map((j.feed.entry || []).map((e) => [norm(e["im:name"].label), { art: e["im:image"].at(-1).label, artist: e["im:artist"].label, genre: e.category?.attributes?.label }]));
+    items.forEach((it) => {
+      const m = byTitle.get(norm(it.title));
+      if (m && sameArtist(m.artist, it.artist)) { it.art = m.art.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, "/600x600bb.jpg"); it.genre = m.genre; }
+    });
+  } catch {}
   const missing = items.filter((it) => !it.art);
   for (let i = 0; i < missing.length; i += 5) {
     await Promise.all(missing.slice(i, i + 5).map(async (it) => {
       try {
         const q = new URLSearchParams({ term: `${it.artist} ${it.title}`, entity: "album", country: "us", limit: "3" });
         const j = await (await fetch(`https://itunes.apple.com/search?${q}`)).json();
-        const hit = (j.results || []).find((x) => sameArtist(x.artistName, it.artist)) || (j.results || [])[0];
+        const hit = (j.results || []).find((x) => sameArtist(x.artistName, it.artist) && norm(x.collectionName).startsWith(norm(it.title).slice(0, 8)))
+          || (j.results || []).find((x) => sameArtist(x.artistName, it.artist));
         if (hit) { it.art = hit.artworkUrl100.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, "/600x600bb.jpg"); it.genre = hit.primaryGenreName; }
       } catch {}
     }));
   }
+  items.forEach((it) => { if (!it.art) it.art = it.fallbackArt || null; delete it.fallbackArt; });
 }
 
 module.exports = async (req, res) => {
