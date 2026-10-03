@@ -529,3 +529,7 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 
 /* Contain screen-reader labels inside scrolling rows */
 .row, .album-card, .list-card { position: relative; }
+
+.icon { width: 16px; height: 16px; }
+.chip svg { width: 13px; height: 13px; fill: currentColor; stroke: none; }
+.record .groove { stroke-width: 2; }
