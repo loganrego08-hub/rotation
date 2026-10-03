@@ -59,24 +59,48 @@ function getJSON(url) {
 }
 const bigArt = (u) => (u || "").replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, "/600x600bb.jpg");
 
+/* Keep kids, sleep/background, karaoke, tribute and AI-filler records off the
+   curated shelves. They can still be searched and rated like anything else. */
+const BLOCK_GENRES = /children|kids|lullab|fitness|workout|karaoke|meditation|sleep|white noise|asmr|ai[- ]generated|artificial intelligence/i;
+const BLOCK_TEXT = /kidz bop|cocomelon|super simple|pinkfong|baby ?shark|lullab|rockabye baby|for kids|kids'? songs|nursery|toddler|bedtime|sleep music|white noise|rain sounds|karaoke|8-bit|music box|tribute to|in the style of|\bai (generated|music|cover)/i;
+const keep = (it) => !BLOCK_GENRES.test(it.genre || "") && !BLOCK_TEXT.test(`${it.title} ${it.artist}`);
+
+/* Listener counts from ListenBrainz, used to rank picks and drop obscure ones */
+async function listeners(ids) {
+  if (!ids.length) return new Map();
+  const r = await fetch("https://api.listenbrainz.org/1/popularity/release-group", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ release_group_mbids: ids }),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const j = await r.json();
+  return new Map((Array.isArray(j) ? j : j.payload || []).map((x) => [x.release_group_mbid, x.total_user_count || 0]));
+}
+
 async function itunesChart(genreId, n = 50) {
   const j = await getJSON(ITUNES(genreId, n));
   let e = j.feed?.entry || [];
   if (!Array.isArray(e)) e = [e];
-  return e.map((x, i) => ({
-    rank: i + 1, title: x["im:name"].label, artist: x["im:artist"].label,
+  return e.map((x) => ({
+    title: x["im:name"].label, artist: x["im:artist"].label,
     art: bigArt(x["im:image"]?.at(-1)?.label), genre: x.category?.attributes?.label || "",
-  }));
+  })).filter(keep).map((x, i) => ({ ...x, rank: i + 1 }));
 }
 async function mbGenreChart(g) {
   const q = `tag:"${g.tags[0]}" AND primarytype:album AND status:official`;
   const j = await getJSON(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=40`);
-  return (j["release-groups"] || []).map((x, i) => ({ rank: i + 1, id: x.id, title: x.title, artist: artistName(x["artist-credit"]), art: coverUrl(x.id, 250) }));
+  let items = (j["release-groups"] || []).filter(isStudioAlbum).map((x) => ({ id: x.id, title: x.title, artist: artistName(x["artist-credit"]), art: coverUrl(x.id, 250), genre: tagNames(x).join(", ") })).filter(keep);
+  try {
+    const n = await listeners(items.map((x) => x.id));
+    items = items.filter((x) => (n.get(x.id) || 0) >= 100).sort((a, b) => (n.get(b.id) || 0) - (n.get(a.id) || 0));
+  } catch {}
+  return items.map((x, i) => ({ ...x, rank: i + 1 }));
 }
 async function topChart() {
   try {
     const j = await getJSON(APPLE_TOP);
-    return j.feed.results.map((x, i) => ({ rank: i + 1, title: x.name, artist: x.artistName, art: bigArt(x.artworkUrl100), genre: x.genres?.[0]?.name || "" }));
+    return j.feed.results.map((x) => ({ title: x.name, artist: x.artistName, art: bigArt(x.artworkUrl100), genre: (x.genres || []).map((g) => g.name).join(", ") }))
+      .filter(keep).map((x, i) => ({ ...x, rank: i + 1 }));
   } catch {
     return itunesChart(null);
   }
@@ -329,10 +353,13 @@ async function buildRecs(ratings) {
   for (const [mbid, a] of topArtists) {
     try {
       const j = await mbSlow(`${MB}/release-group?artist=${mbid}&type=album&limit=50&fmt=json`);
-      (j["release-groups"] || []).filter(isStudioAlbum)
-        .sort((x, y) => (y["first-release-date"] || "").localeCompare(x["first-release-date"] || ""))
-        .slice(0, 4)
-        .forEach((x) => byArtist.push({ id: x.id, title: x.title, artist: a.name, art: coverUrl(x.id, 250), why: `More from ${a.name}` }));
+      let albums = (j["release-groups"] || []).filter(isStudioAlbum)
+        .sort((x, y) => (y["first-release-date"] || "").localeCompare(x["first-release-date"] || ""));
+      try {
+        const n = await listeners(albums.map((x) => x.id));
+        albums = albums.filter((x) => (n.get(x.id) || 0) >= 20).sort((x, y) => (n.get(y.id) || 0) - (n.get(x.id) || 0));
+      } catch {}
+      albums.slice(0, 5).forEach((x) => byArtist.push({ id: x.id, title: x.title, artist: a.name, art: coverUrl(x.id, 250), why: `More from ${a.name}` }));
     } catch {}
   }
   const generic = new Set(["rock", "pop", "electronic", "hip hop", "rap", "jazz", "soul", "alternative", "indie", "american", "british", "english"]);
@@ -342,8 +369,13 @@ async function buildRecs(ratings) {
     try {
       const q = `tag:"${t.replace(/["\\]/g, "")}" AND primarytype:album AND status:official`;
       const j = await mbSlow(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=25`);
-      (j["release-groups"] || []).filter(isStudioAlbum).slice(0, 8)
-        .forEach((x) => byTag.push({ id: x.id, title: x.title, artist: artistName(x["artist-credit"]), art: coverUrl(x.id, 250), why: `Because you like ${t}` }));
+      const cands = (j["release-groups"] || []).filter(isStudioAlbum)
+        .map((x) => ({ id: x.id, title: x.title, artist: artistName(x["artist-credit"]), art: coverUrl(x.id, 250), genre: tagNames(x).join(", "), why: `Because you like ${t}` }))
+        .filter(keep);
+      const n = await listeners(cands.map((x) => x.id)); // no listener data means no tag picks
+      cands.filter((x) => (n.get(x.id) || 0) >= 100)
+        .sort((a, b) => (n.get(b.id) || 0) - (n.get(a.id) || 0))
+        .slice(0, 8).forEach((x) => byTag.push(x));
     } catch {}
   }
   const broad = [...new Set(topTags.concat([...genreWeight.keys()]).map(matchGenre).filter(Boolean))].slice(0, 2);
@@ -353,7 +385,7 @@ async function buildRecs(ratings) {
 
   const out = [], seen = new Set();
   const take = (it) => {
-    if (!it) return;
+    if (!it || !keep(it)) return;
     const k = norm(it.title) + "|" + norm(it.artist);
     if ((it.id && ratedIds.has(it.id)) || ratedKeys.has(k) || seen.has(k)) return;
     seen.add(k); out.push(it);
@@ -379,10 +411,10 @@ async function loadRecs() {
   $("#recWhy").textContent = "Tuning picks to what you've rated highly…";
   const sig = user.id + ":" + ratings.map((r) => r.album?.id + r.score).join(",");
   let recs;
-  try { recs = JSON.parse(sessionStorage.getItem("recs:" + sig) || "null"); } catch {}
+  try { recs = JSON.parse(sessionStorage.getItem("recs2:" + sig) || "null"); } catch {}
   if (!recs) {
     try { recs = await buildRecs(ratings); } catch { recs = { items: [] }; }
-    try { sessionStorage.setItem("recs:" + sig, JSON.stringify(recs)); } catch {}
+    try { sessionStorage.setItem("recs2:" + sig, JSON.stringify(recs)); } catch {}
   }
   if (!$("#recs")) return; // navigated away
   const bits = [];
