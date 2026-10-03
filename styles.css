@@ -685,3 +685,27 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
   .pinlist__avatar { grid-column: 2 / -1; grid-row: 2; }
   .entry { grid-template-columns: 1.75rem minmax(0, 1fr) auto; gap: var(--s-2); }
 }
+/* Library toolbar and list browsing */
+.toolbar--lib { flex-wrap: wrap; justify-content: flex-start; margin-bottom: var(--s-4); }
+.toolbar--lib .search { flex: 1 1 220px; max-width: 360px; }
+.toolbar--lib .segmented { margin-left: auto; }
+.field--inline { display: block; }
+.select {
+  height: 40px; padding: 0 var(--s-8) 0 var(--s-3); border-radius: var(--r-md); border: 1px solid var(--border-strong);
+  background: var(--surface-2); color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-medium); cursor: pointer; max-width: 100%;
+}
+.select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.textlink { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--text-3); color: var(--text-2); }
+.textlink:hover { color: var(--text); }
+.listtile__title:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--text-3); }
+.collage { transition: opacity var(--dur) var(--ease); }
+.collage__cell { position: relative; }
+@media (max-width: 760px) {
+  .toolbar--lib .search { flex-basis: 100%; max-width: none; }
+  .toolbar--lib .field--inline { flex: 1 1 0; min-width: 0; }
+  .toolbar--lib .select { width: 100%; }
+}
+/* Collages adapt to how many covers a list has so there are never blank cells */
+.collage--0, .collage--1 { grid-template-columns: 1fr; }
+.collage--2 { grid-template-rows: 1fr; }
+.collage--3 > .collage__cell:first-child { grid-row: span 2; }

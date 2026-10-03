@@ -29,6 +29,9 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   Never add user_id or email to a public view. Profiles start private; ratings can be hidden with `show_ratings`; a shared review
   appears on a profile only if the writer ticked "credit to profile" (`ratings.credit_profile`). Follow/unfollow go through RPCs only.
   Avatars are the cover of a chosen pinned album (or an initial); there is no file upload.
+- Library (`#/me`): `LIB_VIEWS` (All rated, Recently rated, Highest, Lowest, Favorites, Want to listen, Listened, With notes) x `LIB_SORTS`
+  (date, rating, artist, title, release year; missing values always sort last; rating sorts hidden for Want to listen) + title/artist filter.
+  Public lists are browsed at `#/lists/browse` from the `public_lists` view; list cards come from `listTile` (adaptive cover collage).
 - Rating scale: whole scores 1-10 (not stars); this is the established convention (DB check, charts, recommendations all use it).
   Tapping a score saves immediately (score only, so reviews are never clobbered); the review/standouts have their own Save.
   Never put `updated_at` in client writes; triggers own timestamps. Duplicates are impossible (unique user_id+album_id upsert).

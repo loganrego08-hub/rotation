@@ -483,7 +483,7 @@ async function search(input, term) {
    Views
    ========================================================================== */
 const view = () => $("#view");
-async function myRatings(fields = "score, standout_tracks, thoughts, updated_at, created_at, album:albums(id,title,artist,cover_url,genres)") {
+async function myRatings(fields = "score, standout_tracks, thoughts, updated_at, created_at, album:albums(id,title,artist,cover_url,genres,release_date)") {
   if (!sb || !user) return [];
   const { data, error } = await sb.from("ratings").select(fields).order("score", { ascending: false }).order("updated_at", { ascending: false });
   if (error) throw error;
@@ -769,10 +769,10 @@ async function renderDecade(start) {
 
 /* ---------- Lists ---------- */
 async function renderLists(tab) {
-  if (!["charts", "community", "mine", "yours"].includes(tab)) tab = "charts";
+  if (!["charts", "community", "browse", "yours", "mine"].includes(tab)) tab = "charts";
   document.title = "Lists · Rotation";
   view().innerHTML = `<header class="page-head"><h1 class="t-page">Lists</h1><p class="t-lead">Ranked lists from the charts, the community and your own shelf. Make your own and share them.</p></header>
-    ${tabs([["charts", "Charts"], ["community", "Top rated"], ["mine", "Your ranking"], ["yours", "My lists"]], tab, "Lists")}
+    ${tabs([["charts", "Charts"], ["community", "Top rated"], ["browse", "Public lists"], ["yours", "My lists"], ["mine", "Your ranking"]], tab, "Lists")}
     <div id="lbody">${loadingLabel("Loading list")}<div class="grid">${skCards(8)}</div></div>`;
   $$("[data-tab]").forEach((b) => b.onclick = () => { location.hash = `#/lists/${b.dataset.tab}`; });
   const el = $("#lbody");
@@ -796,6 +796,8 @@ async function renderLists(tab) {
         : emptyState({ iconName: "star", title: "No album has enough ratings yet", body: `Albums need ${MIN_RATINGS} ratings to appear here. Score a few and help build the list.`,
             actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) });
     } catch { fail(); }
+  } else if (tab === "browse") {
+    await renderBrowseLists(el);
   } else if (tab === "yours") {
     await renderMyLists(el);
   } else if (!sb || !user) {
@@ -912,31 +914,49 @@ async function renderGenre(slug) {
   }
 }
 
-/* ---------- Profile ---------- */
-let profileTab = "ranked", profileView = "list";
+/* ---------- Your library (private shelf) ---------- */
+// Each view is a filter over your own rows plus a sensible default sort. The sort menu can override it.
+const LIB_VIEWS = {
+  all: { label: "All rated", sort: "rating-desc", src: "rated" },
+  recent: { label: "Recently rated", sort: "date-desc", src: "rated" },
+  top: { label: "Highest rated", sort: "rating-desc", src: "rated" },
+  low: { label: "Lowest rated", sort: "rating-asc", src: "rated" },
+  favorite: { label: "Favorites", sort: "date-desc", src: "status", pick: (r) => r.favorite, empty: ["Nothing favorited yet", "Tap Favorite on any album page to keep your all-time picks here."] },
+  want: { label: "Want to listen", sort: "date-desc", src: "status", pick: (r) => r.want, noRating: true, empty: ["Nothing queued yet", "Tap Want to listen on any album page to line up your next listens."] },
+  listened: { label: "Listened", sort: "date-desc", src: "status", pick: (r) => r.listened, empty: ["No listens logged yet", "Mark albums as Listened, or rate them, and they show up here."] },
+  notes: { label: "With notes", sort: "date-desc", src: "rated", pick: (r) => !!r.thoughts, empty: ["No notes yet", "Add a review when you score an album and it will appear here."] },
+};
+const byText = (a, b) => String(a || "").localeCompare(String(b || ""), undefined, { sensitivity: "base", numeric: true });
+// Albums with no value for the sort key (no score, no release date) always go last
+const missingLast = (get, dir) => (a, b) => { const x = get(a), y = get(b); return x == null ? (y == null ? 0 : 1) : y == null ? -1 : dir * (x - y); };
+const LIB_SORTS = {
+  "date-desc": { label: (v) => `${v.src === "rated" ? "Date rated" : "Date added"} (newest)`, fn: (a, b) => String(b.date).localeCompare(String(a.date)) },
+  "date-asc": { label: (v) => `${v.src === "rated" ? "Date rated" : "Date added"} (oldest)`, fn: (a, b) => String(a.date).localeCompare(String(b.date)) },
+  "rating-desc": { label: () => "Rating (high to low)", fn: (a, b) => missingLast((r) => r.score, -1)(a, b) || String(b.date).localeCompare(String(a.date)), rating: true },
+  "rating-asc": { label: () => "Rating (low to high)", fn: (a, b) => missingLast((r) => r.score, 1)(a, b) || String(b.date).localeCompare(String(a.date)), rating: true },
+  artist: { label: () => "Artist (A to Z)", fn: (a, b) => byText(a.album.artist, b.album.artist) || byText(a.album.title, b.album.title) },
+  title: { label: () => "Album title (A to Z)", fn: (a, b) => byText(a.album.title, b.album.title) },
+  "year-desc": { label: () => "Release year (newest)", fn: (a, b) => missingLast((r) => +year(r.album.release_date) || null, -1)(a, b), year: true },
+  "year-asc": { label: () => "Release year (oldest)", fn: (a, b) => missingLast((r) => +year(r.album.release_date) || null, 1)(a, b), year: true },
+};
+let profileTab = "all", profileView = "list", profileSort = null, profileQuery = "";
 async function renderProfile() {
-  document.title = "Your profile · Rotation";
+  document.title = "Your library · Rotation";
   if (!sb || !user) {
-    view().innerHTML = emptyState({ iconName: "user", title: "Your profile lives here",
-      body: "Sign in to keep a ranked shelf of everything you've scored, with your notes and standout tracks.",
+    view().innerHTML = emptyState({ iconName: "user", title: "Your library lives here",
+      body: "Sign in to keep a library of everything you've scored, favorited or want to hear, with your notes and standout tracks.",
       actions: button("Sign in", { variant: "primary", id: "profSignIn" }) });
     $("#profSignIn")?.addEventListener("click", openAuth);
     return;
   }
   view().innerHTML = `${profileHeader({ initial: displayName().charAt(0).toUpperCase(), name: displayName(), eyebrow: " " })}${skList(6)}`;
   let rows;
-  try { rows = await myRatings(); } catch { view().innerHTML = errorState({ title: "Couldn't load your profile", retry: renderProfile, compact: false }); return; }
-
+  try { rows = await myRatings(); } catch { view().innerHTML = errorState({ title: "Couldn't load your library", retry: renderProfile, compact: false }); return; }
   let statuses = [];
   try {
-    const { data } = await sb.from("album_status").select("listened, want, favorite, updated_at, album:albums(id,title,artist,cover_url)").order("updated_at", { ascending: false });
+    const { data } = await sb.from("album_status").select("listened, want, favorite, updated_at, album:albums(id,title,artist,cover_url,genres,release_date)").order("updated_at", { ascending: false });
     statuses = (data || []).filter((r) => r.album);
   } catch {}
-  const STATUS_TABS = {
-    favorite: { pick: (r) => r.favorite, meta: "Favorite", empty: ["Nothing favorited yet", "Tap Favorite on any album page to keep your all-time picks here."] },
-    want: { pick: (r) => r.want, meta: "Want to listen", empty: ["Nothing queued yet", "Tap Want to listen on any album page to line up your next listens."] },
-    listened: { pick: (r) => r.listened, meta: "Listened", empty: ["No listens logged yet", "Mark albums as Listened, or rate them, and they show up here."] },
-  };
 
   const avg = rows.length ? (rows.reduce((s, r) => s + r.score, 0) / rows.length).toFixed(1) : "–";
   const standouts = rows.reduce((s, r) => s + (r.standout_tracks?.length || 0), 0);
@@ -945,26 +965,45 @@ async function renderProfile() {
   const topGenre = [...gCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "–";
   const since = user.created_at ? `Member since ${fmtDate(user.created_at.slice(0, 7))}` : "";
 
+  // One row shape for every view
+  const ratingBy = new Map(rows.map((r) => [r.album.id, r]));
+  const ratedRows = rows.map((r) => ({ album: r.album, score: r.score, thoughts: r.thoughts, date: r.updated_at }));
+  const statusRows = statuses.map((s) => ({ album: s.album, score: ratingBy.get(s.album.id)?.score ?? null, thoughts: ratingBy.get(s.album.id)?.thoughts ?? null,
+    date: s.updated_at, listened: s.listened, want: s.want, favorite: s.favorite }));
+  const count = (k) => { const v = LIB_VIEWS[k]; return (v.src === "rated" ? ratedRows : statusRows).filter(v.pick || (() => true)).length; };
+
+  const current = () => {
+    const v = LIB_VIEWS[profileTab] || LIB_VIEWS.all;
+    const sortKey = profileSort && LIB_SORTS[profileSort] && !(v.noRating && LIB_SORTS[profileSort].rating) ? profileSort : v.sort;
+    const q = profileQuery.trim().toLowerCase();
+    let list = (v.src === "rated" ? ratedRows : statusRows).filter(v.pick || (() => true))
+      .filter((r) => !q || `${r.album.title} ${r.album.artist}`.toLowerCase().includes(q));
+    list = [...list].sort(LIB_SORTS[sortKey].fn);
+    return { v, sortKey, list, total: (v.src === "rated" ? ratedRows : statusRows).filter(v.pick || (() => true)).length, q };
+  };
+  const bodyHTML = () => {
+    const { v, sortKey, list, total, q } = current();
+    if (!list.length) {
+      if (q && total) return emptyState({ iconName: "search", compact: true, title: `No matches for “${profileQuery.trim()}”`, body: "Try a different title or artist, or clear the filter." });
+      if (v.empty) return emptyState({ iconName: profileTab === "favorite" ? "heart" : profileTab === "want" ? "bookmark" : "note", compact: true, title: v.empty[0], body: v.empty[1],
+        actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) });
+      return emptyState({ iconName: "disc", title: "Your library is empty", body: "Score your first album and your rankings, notes and standout tracks will collect here.",
+        actions: button("Browse the charts", { variant: "primary", href: "#/" }) + button("Search albums", { href: "#/search", iconName: "search" }) });
+    }
+    const ranked = LIB_SORTS[sortKey].rating;
+    const noYear = LIB_SORTS[sortKey].year ? list.filter((r) => !year(r.album.release_date)).length : 0;
+    const cards = profileView === "list"
+      ? `<div class="list">${list.map((r, i) => listCard({ album: r.album, score: r.score, thoughts: r.thoughts }, ranked && r.score != null ? i + 1 : "")).join("")}</div>`
+      : `<div class="grid">${list.map((r) => albumCard({ id: r.album.id, title: r.album.title, artist: r.album.artist, art: r.album.cover_url },
+          { score: r.score, mine: true, meta: [year(r.album.release_date), r.thoughts ? "Has notes" : ""].filter(Boolean).join(" · ") || null })).join("")}</div>`;
+    return `${cards}${noYear ? `<p class="t-meta" style="margin-top:var(--s-4)">${plural(noYear, "album")} with no release year listed, shown last.</p>` : ""}`;
+  };
+  const countText = () => { const { list, total, q } = current(); return q ? `${list.length} of ${total}` : plural(total, "album"); };
+  const sortOptions = () => { const { v, sortKey } = current();
+    return Object.entries(LIB_SORTS).filter(([, s]) => !(v.noRating && s.rating)).map(([k, s]) => `<option value="${k}"${k === sortKey ? " selected" : ""}>${esc(s.label(v))}</option>`).join(""); };
+
+  const drawBody = () => { $("#libBody").innerHTML = bodyHTML(); $("#libCount").textContent = countText(); };
   const draw = () => {
-    let list = [...rows];
-    if (profileTab === "recent") list.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-    if (profileTab === "notes") list = list.filter((r) => r.thoughts);
-    const st = STATUS_TABS[profileTab];
-    const stRows = st ? statuses.filter(st.pick) : [];
-    const body = st
-      ? (stRows.length ? `<div class="grid">${stRows.map((r) => albumCard({ id: r.album.id, title: r.album.title, artist: r.album.artist, art: r.album.cover_url },
-          { meta: `${st.meta} ${fmtDate(String(r.updated_at).slice(0, 10), "short")}` })).join("")}</div>`
-        : emptyState({ iconName: profileTab === "favorite" ? "heart" : "bookmark", title: st.empty[0], body: st.empty[1], compact: true,
-            actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) }))
-      : !rows.length
-      ? emptyState({ iconName: "disc", title: "Your shelf is empty", body: "Score your first album and your rankings, notes and standout tracks will collect here.",
-          actions: button("Browse the charts", { variant: "primary", href: "#/" }) + button("Search albums", { href: "#/search", iconName: "search" }) })
-      : !list.length
-        ? emptyState({ iconName: "note", title: "No notes yet", body: "Add thoughts when you score an album and they'll appear here.", compact: true })
-        : profileView === "list"
-          ? `<div class="list">${list.map((r, i) => listCard(r, profileTab === "ranked" ? i + 1 : "")).join("")}</div>`
-          : `<div class="grid">${list.map((r) => albumCard({ id: r.album.id, title: r.album.title, artist: r.album.artist, art: r.album.cover_url },
-              { score: r.score, mine: true, meta: r.thoughts ? "Has notes" : null })).join("")}</div>`;
     view().innerHTML = `
       ${profileHeader({ initial: displayName().charAt(0).toUpperCase(), avatar: profile ? avatarHTML(profile, "lg") : undefined, name: displayName(), eyebrow: since, stats: [
         { label: "Albums rated", value: rows.length }, { label: "Average score", value: avg },
@@ -972,16 +1011,22 @@ async function renderProfile() {
         extra: `<div class="chips" style="margin-top:var(--s-4)">${profile
           ? `${button("View public profile", { size: "sm", href: profileHref(profile.username), iconName: "user" })}${button("Edit profile", { size: "sm", href: "#/me/edit", iconName: "note" })}<span class="t-meta" style="align-self:center">${profile.is_public ? "Public" : "Private until you make it public"}</span>`
           : `${button("Create your profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}<span class="t-meta" style="align-self:center">Pin favorites, share lists and let people follow you.</span>`}</div>` })}
-      <div class="toolbar">
-        ${tabs([["ranked", "Ranked"], ["recent", "Recently rated"], ["notes", "With notes"], ["favorite", "Favorites"], ["want", "Want to listen"], ["listened", "Listened"]], profileTab, "Sort your shelf")}
+      ${tabs(Object.entries(LIB_VIEWS).map(([k, v]) => [k, `${v.label} (${count(k)})`]), profileTab, "Library views")}
+      <div class="toolbar toolbar--lib">
+        <label class="search search--lib"><span class="sr">Filter by title or artist</span>${icon("search", "search__icon")}
+          <input id="libQuery" class="input input--search" type="search" placeholder="Filter by title or artist" value="${esc(profileQuery)}" autocomplete="off"></label>
+        <label class="field field--inline"><span class="sr">Sort by</span><select id="libSort" class="select" aria-label="Sort by">${sortOptions()}</select></label>
         <div class="segmented" role="group" aria-label="Layout">
           <button type="button" data-view="list" aria-pressed="${profileView === "list"}" aria-label="List view">${icon("list")}</button>
           <button type="button" data-view="grid" aria-pressed="${profileView === "grid"}" aria-label="Grid view">${icon("grid")}</button>
         </div>
       </div>
-      ${body}`;
-    $$("[data-tab]").forEach((b) => b.onclick = () => { profileTab = b.dataset.tab; draw(); });
+      <p class="t-meta" id="libCount" role="status" aria-live="polite" style="margin-bottom:var(--s-4)">${countText()}</p>
+      <div id="libBody">${bodyHTML()}</div>`;
+    $$("[data-tab]").forEach((b) => b.onclick = () => { profileTab = b.dataset.tab; profileSort = null; draw(); });
     $$("[data-view]").forEach((b) => b.onclick = () => { profileView = b.dataset.view; draw(); });
+    $("#libSort").onchange = (e) => { profileSort = e.target.value; drawBody(); };
+    $("#libQuery").oninput = (e) => { profileQuery = e.target.value; drawBody(); };
   };
   draw();
 }
@@ -1504,12 +1549,18 @@ function tile({ href, art, title, artist, score, mine = false, note }) {
     <span class="tile__art">${artwork(smallArt(art), `${title}${artist ? ` by ${artist}` : ""}`)}${score != null ? `<span class="tile__score${mine ? " tile__score--mine" : ""}"><span class="sr">Score: </span>${score}</span>` : ""}</span>
     <span class="tile__title">${esc(title)}</span>${note ? `<span class="tile__note">${esc(note)}</span>` : ""}</a>`;
 }
-function listTile(l, own = false) {
-  const covers = l.covers || [];
-  return `<a class="listtile" href="#/list/${l.id}">
-    <span class="collage">${[0, 1, 2, 3].map((i) => covers[i] ? `<span class="collage__cell"><img src="${esc(smallArt(covers[i]))}" alt="" loading="lazy" onerror="this.remove()"></span>` : `<span class="collage__cell"></span>`).join("")}</span>
-    <span class="listtile__title">${esc(l.title)}</span>
-    <span class="t-meta">${plural(l.item_count, "album")}${own ? (l.is_public ? " · Public" : " · Private") : ""}</span></a>`;
+// A list card: cover collage, title, creator (when browsing other people's lists) and details.
+// The collage and title are separate links so the creator link can sit between them.
+function listTile(l, { own = false, showCreator = false } = {}) {
+  const covers = l.covers || [], href = `#/list/${l.id}`;
+  const meta = [plural(l.item_count, "album"), own ? (l.is_public ? "Public" : "Private") : null,
+    l.updated_at ? `Updated ${fmtDate(String(l.updated_at).slice(0, 10), "short")}` : null].filter(Boolean).join(" · ");
+  const n = Math.min(4, covers.length);
+  return `<article class="listtile">
+    <a class="collage collage--${n}" href="${href}" aria-label="Open ${esc(l.title)}">${n ? covers.slice(0, n).map((c) => `<span class="collage__cell"><img src="${esc(smallArt(c))}" alt="" loading="lazy" onerror="this.remove()"></span>`).join("") : `<span class="collage__cell"></span>`}</a>
+    <a class="listtile__title" href="${href}">${esc(l.title)}</a>
+    ${showCreator && l.username ? `<span class="t-meta">by <a class="textlink" href="${profileHref(l.username)}">@${esc(l.username)}</a></span>` : ""}
+    <span class="t-meta">${esc(meta)}</span></article>`;
 }
 
 // What the page needs, in one shape whether it came from the owner's tables or the public views
@@ -1520,7 +1571,7 @@ async function loadProfileData(p, own) {
     const [pins, ratings, lists] = await Promise.all([
       q(sb.from("profile_pins").select("position, album:albums(id,title,artist,cover_url)").order("position")),
       q(sb.from("ratings").select("score, thoughts, is_public, credit_profile, updated_at, album:albums(id,title,artist,cover_url,genres)").order("updated_at", { ascending: false }).limit(300)),
-      q(sb.from("lists").select("id, title, description, is_public, list_items(position, album:albums(cover_url))").order("updated_at", { ascending: false })),
+      q(sb.from("lists").select("id, title, description, is_public, updated_at, list_items(position, album:albums(cover_url))").order("updated_at", { ascending: false })),
     ]);
     const rs = ratings.filter((r) => r.album).map((r) => ({ album_id: r.album.id, title: r.album.title, artist: r.album.artist, cover_url: r.album.cover_url,
       genres: r.album.genres || [], score: r.score, rated_at: r.updated_at, has_review: !!(r.credit_profile && r.is_public && r.thoughts?.trim()), body: r.thoughts }));
@@ -1529,7 +1580,7 @@ async function loadProfileData(p, own) {
       ratings: rs,
       reviews: rs.filter((r) => r.has_review).map((r) => ({ ...r, updated_at: r.rated_at })),
       lists: lists.map((l) => { const items = [...(l.list_items || [])].filter((i) => i.album).sort((a, b) => a.position - b.position);
-        return { id: l.id, title: l.title, description: l.description, is_public: l.is_public, item_count: items.length, covers: items.slice(0, 4).map((i) => i.album.cover_url) }; }),
+        return { id: l.id, title: l.title, description: l.description, is_public: l.is_public, updated_at: l.updated_at, item_count: items.length, covers: items.slice(0, 4).map((i) => i.album.cover_url) }; }),
     };
   }
   const [pins, ratings, reviews, lists] = await Promise.all([
@@ -1612,7 +1663,7 @@ async function renderPublicProfile(username) {
           <p class="review-card__body">${esc(r.body)}</p></article>`).join("")}</div>`
         : emptyState({ iconName: "note", compact: true, title: "No shared reviews", body: own ? "Write a review on an album page, share it, and credit it to your profile." : "Written reviews they choose to share appear here." });
     } else {
-      body = d.lists.length ? `<div class="listtiles">${d.lists.map((l) => listTile(l, own)).join("")}</div>`
+      body = d.lists.length ? `<div class="listtiles">${d.lists.map((l) => listTile(l, { own })).join("")}</div>`
         : emptyState({ iconName: "list", compact: true, title: own ? "No lists yet" : "No public lists", body: own ? "Group albums into lists, then make them public to show them here." : "Lists they make public appear here.",
             actions: own ? button("Create a list", { variant: "primary", href: "#/lists/yours" }) : "" });
     }
@@ -1764,15 +1815,15 @@ async function renderMyLists(el) {
     $("#listSignIn2")?.addEventListener("click", openAuth);
     return;
   }
-  const { data, error } = await sb.from("lists").select("id, title, is_public, list_items(position, album:albums(cover_url))").order("updated_at", { ascending: false });
+  const { data, error } = await sb.from("lists").select("id, title, is_public, updated_at, list_items(position, album:albums(cover_url))").order("updated_at", { ascending: false });
   if (error) { el.innerHTML = errorState({ title: "Couldn't load your lists", retry: () => renderMyLists(el), compact: false }); return; }
   const lists = (data || []).map((l) => { const items = [...(l.list_items || [])].filter((i) => i.album).sort((a, b) => a.position - b.position);
-    return { id: l.id, title: l.title, is_public: l.is_public, item_count: items.length, covers: items.slice(0, 4).map((i) => i.album.cover_url) }; });
+    return { id: l.id, title: l.title, is_public: l.is_public, updated_at: l.updated_at, item_count: items.length, covers: items.slice(0, 4).map((i) => i.album.cover_url) }; });
   el.innerHTML = `<form id="newList" class="form panel" novalidate><h2 class="t-section">New list</h2>${listForm()}
       <p id="lError" class="alert alert--error" role="alert" hidden></p>
       <div><button type="submit" class="btn btn--primary" id="lSave"><span>Create list</span></button></div></form>
     <section class="section" style="margin-top:var(--s-10)">${sectionHead("Your lists", { sub: lists.length ? plural(lists.length, "list") : "" })}
-      ${lists.length ? `<div class="listtiles">${lists.map((l) => listTile(l, true)).join("")}</div>` : emptyState({ iconName: "list", compact: true, title: "No lists yet", body: "Create one above, then add albums from any album page." })}</section>`;
+      ${lists.length ? `<div class="listtiles">${lists.map((l) => listTile(l, { own: true })).join("")}</div>` : emptyState({ iconName: "list", compact: true, title: "No lists yet", body: "Create one above, then add albums from any album page." })}</section>`;
   $("#newList").addEventListener("submit", async (e) => {
     e.preventDefault();
     const title = $("#lTitle").value.trim(), err = $("#lError");
@@ -1816,7 +1867,8 @@ async function renderList(id) {
         actions: own ? button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) : "" });
 
   const head = () => `<header class="page-head">
-      <p class="t-meta">${own ? "Your list" : `List by <a href="${profileHref(list.username)}">@${esc(list.username)}</a>`}${own ? (list.is_public ? " · Public" : " · Private") : ""}</p>
+      <p class="t-meta">${own ? "Your list" : `List by <a class="textlink" href="${profileHref(list.username)}">@${esc(list.username)}</a>`}${own ? (list.is_public ? " · Public" : " · Private") : ""}
+        · <span id="listCount">${plural(items.length, "album")}</span> · Updated ${fmtDate(String(list.updated_at).slice(0, 10), "short")} · <a class="textlink" href="#/lists/browse">Browse public lists</a></p>
       <h1 class="t-title">${esc(list.title)}</h1>
       ${list.description ? `<p class="t-lead">${esc(list.description)}</p>` : ""}
       <div class="chips">${own ? `${button("Edit list", { size: "sm", id: "editList", iconName: "note" })}` : ""}${button("Share", { size: "sm", id: "shareList", iconName: "share" })}</div>
@@ -1845,7 +1897,7 @@ async function renderList(id) {
       if (op === "remove") {
         const { error } = await sb.from("list_items").delete().eq("list_id", id).eq("album_id", items[i].album_id);
         if (error) return toast(`Couldn't remove: ${apiError(error)}`, "error");
-        items.splice(i, 1); $("#entries").innerHTML = rowsHTML(); toast("Removed from list", "info");
+        items.splice(i, 1); $("#entries").innerHTML = rowsHTML(); $("#listCount").textContent = plural(items.length, "album"); toast("Removed from list", "info");
       } else swap(i, op === "up" ? i - 1 : i + 1);
     });
     $("#editList").onclick = () => {
@@ -1875,6 +1927,35 @@ async function renderList(id) {
     };
   }
   paint();
+}
+
+/* ---------- Browse everyone's public lists ---------- */
+let browseSort = "recent", browseQuery = "";
+async function renderBrowseLists(el) {
+  if (!sb) { el.innerHTML = emptyState({ iconName: "list", title: "Lists are offline right now", body: "Try again in a little while.", compact: true }); return; }
+  const { data, error } = await sb.from("public_lists").select("*").gt("item_count", 0).order("updated_at", { ascending: false }).limit(100);
+  if (error) { el.innerHTML = errorState({ title: "Couldn't load public lists", retry: () => renderBrowseLists(el), compact: false }); return; }
+  const all = data || [];
+  const shown = () => {
+    const q = browseQuery.trim().toLowerCase();
+    const list = all.filter((l) => !q || `${l.title} ${l.username} ${l.description || ""}`.toLowerCase().includes(q));
+    return browseSort === "largest" ? [...list].sort((a, b) => b.item_count - a.item_count || String(b.updated_at).localeCompare(String(a.updated_at))) : list;
+  };
+  const body = () => {
+    const list = shown();
+    return list.length ? `<div class="listtiles">${list.map((l) => listTile(l, { showCreator: true })).join("")}</div>`
+      : all.length ? emptyState({ iconName: "search", compact: true, title: `No lists match “${browseQuery.trim()}”`, body: "Try a different word, or clear the filter." })
+      : emptyState({ iconName: "list", compact: true, title: "No public lists yet", body: "When people publish lists from public profiles, they show up here. Make yours public from My lists.",
+          actions: button("Make a list", { variant: "primary", href: "#/lists/yours" }) });
+  };
+  el.innerHTML = `<section class="section">${sectionHead("Public lists", { sub: all.length ? `${plural(all.length, "list")} from public profiles` : "" })}
+    <div class="toolbar toolbar--lib"><label class="search search--lib"><span class="sr">Filter lists</span>${icon("search", "search__icon")}
+      <input id="bQuery" class="input input--search" type="search" placeholder="Filter by title or creator" value="${esc(browseQuery)}" autocomplete="off"></label>
+      <label class="field field--inline"><span class="sr">Sort lists</span><select id="bSort" class="select" aria-label="Sort lists">
+        <option value="recent"${browseSort === "recent" ? " selected" : ""}>Recently updated</option><option value="largest"${browseSort === "largest" ? " selected" : ""}>Most albums</option></select></label></div>
+    <div id="bBody">${body()}</div></section>`;
+  $("#bSort").onchange = (e) => { browseSort = e.target.value; $("#bBody").innerHTML = body(); };
+  $("#bQuery").oninput = (e) => { browseQuery = e.target.value; $("#bBody").innerHTML = body(); };
 }
 
 // "Add to list" dialog on the album page
