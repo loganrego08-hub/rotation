@@ -41,7 +41,7 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   Every home section carries a source badge: "Community ranking" (calculated), "Billboard chart", or "Editorial picks" (hand-picked decade landmarks).
   Never mix those up; editorial lists must not be presented as rankings.
   `#/surprise` draws from Rotation's catalog + this week's charts + a random MusicBrainz page, excluding anything you rated/saved/listed/pinned and
-  anything already shown this session. MusicBrainz won't page past ~1000 results (HTTP 400) and rate-limits bursts (503): use `mbSlow` for bulk calls.
+  anything already shown this session. MusicBrainz returns HTTP 400 if a search's offset + limit passes 500 (`MB_WINDOW`) and 503s on bursts (`getJSON` retries once; `mbSlow` throttles).
   Search (`#/search/<term>?type=&from=&to=&genre=&artist=`) escapes Lucene input and dedupes identical title+artist release groups.
   Related albums on the album page always say why: same artist, shared genres (names shown), or listeners who rated both 8+ (`related_by_ratings`, 3+ people).
 - Library (`#/me`): `LIB_VIEWS` (All rated, Recently rated, Highest, Lowest, Favorites, Want to listen, Listened, With notes) x `LIB_SORTS`

@@ -51,7 +51,14 @@ function fmtDate(d, style = "long") {
 const cache = new Map();
 function getJSON(url) {
   if (cache.has(url)) return cache.get(url);
-  const p = fetch(url).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+  // MusicBrainz answers 503 when it is rate limiting a burst; one patient retry usually clears it
+  const get = async (retry) => {
+    const r = await fetch(url);
+    if (r.status === 503 && retry) { await new Promise((ok) => setTimeout(ok, 1500)); return get(false); }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  };
+  const p = get(true);
   cache.set(url, p);
   p.catch(() => cache.delete(url));
   return p;
@@ -534,9 +541,9 @@ async function pageSearch(term, f = {}, replace = false) {
       <section class="section">${sectionHead("Albums", { sub: "", id: "sCount" })}
         <div class="grid" id="sAlbums">${cardsFor(al)}</div><div id="sMore" style="margin-top:var(--s-6)"></div></section>`;
     const paint = () => {
-      const hasMore = offset < Math.min(total, 950); // MusicBrainz won't page past about a thousand matches
+      const hasMore = offset < Math.min(total, MB_WINDOW); // MusicBrainz won't return results past its first 500
       $("#sCount").textContent = hasMore ? `Showing ${shown} of ${total.toLocaleString()} matches. Duplicate entries are hidden.`
-        : total > 950 ? `Showing the top ${shown} of ${total.toLocaleString()} matches. Narrow your search to see others.` : plural(shown, "album");
+        : total > MB_WINDOW ? `Showing the top ${shown} of ${total.toLocaleString()} matches. Narrow your search to see others.` : plural(shown, "album");
       $("#sCount").setAttribute("role", "status");
       $("#sMore").innerHTML = hasMore ? `<button type="button" class="btn" id="sShowMore"><span>Show more</span></button>` : "";
       $("#sShowMore")?.addEventListener("click", more);
@@ -544,7 +551,7 @@ async function pageSearch(term, f = {}, replace = false) {
     async function more() {
       const btn = $("#sShowMore"); btn.setAttribute("aria-busy", "true");
       try {
-        const next = await fetchSearch(term, f, { albums: 24, offset });
+        const next = await fetchSearch(term, f, { albums: Math.min(24, MB_WINDOW - offset), offset });
         if (seq !== searchSeq || !el.isConnected) return;
         const add = dedupeGroups(next.al, seen);
         offset += next.al.length; shown += add.length;
@@ -2476,6 +2483,7 @@ async function renderBrowse(f0 = {}) {
 }
 
 /* ---------- Surprise me ---------- */
+const MB_WINDOW = 500; // deepest result MusicBrainz will return for a search (offset + limit)
 const seenKey = "rotation:surprise-seen";
 const loadSeen = () => { try { return new Set(JSON.parse(sessionStorage.getItem(seenKey) || "[]")); } catch { return new Set(); } };
 const saveSeen = (s) => { try { sessionStorage.setItem(seenKey, JSON.stringify([...s].slice(-150))); } catch {} };
@@ -2514,8 +2522,8 @@ async function mbCandidates(f) {
   const tag = gen ? gen.tags[0] : "";
   const q = albumQuery("", { type: "album", from: from || "1960", to: to || String(new Date().getFullYear()), genre: tag });
   const first = await mbSlow(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=1`);
-  // MusicBrainz refuses paging past roughly the first thousand matches, so pick a random page inside that window
-  const count = Math.min(first.count || 0, 950);
+  // MusicBrainz rejects any search page where offset + limit passes 500 (HTTP 400), so pick a random page inside that window
+  const count = Math.min(first.count || 0, MB_WINDOW);
   if (!count) return [];
   const off = Math.floor(Math.random() * Math.max(1, count - 25));
   const page = await mbSlow(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=25&offset=${off}`);
