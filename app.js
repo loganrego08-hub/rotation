@@ -652,13 +652,18 @@ async function renderArtist(id) {
   const albums = (groups["release-groups"] || []).filter(isStudioAlbum)
     .sort((x, y) => (y["first-release-date"] || "").localeCompare(x["first-release-date"] || ""));
   const span = a["life-span"] || {};
-  const active = span.begin ? `${year(span.begin)}–${span.ended ? year(span.end) || "" : "present"}` : "–";
+  // For people, MusicBrainz's life span is birth (and death), not career length
+  const isPerson = a.type === "Person";
+  const lifeLabel = isPerson ? (span.ended ? "Lived" : "Born") : "Active";
+  const active = !span.begin ? "–"
+    : isPerson ? (span.ended && span.end ? `${year(span.begin)}–${year(span.end)}` : year(span.begin))
+    : `${year(span.begin)}–${span.ended ? year(span.end) || "" : "present"}`;
   const genres = (a.genres || []).sort((x, y) => y.count - x.count).slice(0, 4);
   view().innerHTML = `
     ${profileHeader({
       initial: a.name.charAt(0).toUpperCase(), name: a.name,
       eyebrow: [a.type, a.area?.name].filter(Boolean).join(", "),
-      stats: [{ label: "Studio albums", value: albums.length }, { label: "Active", value: active }],
+      stats: [{ label: "Studio albums", value: albums.length }, { label: lifeLabel, value: active }],
       extra: genres.length ? `<div class="chips" style="margin-top:var(--s-4)">${genres.map((g) => {
         const m = matchGenre(g.name);
         return m ? `<a class="chip" href="#/genre/${m.slug}">${esc(g.name)}</a>` : `<span class="chip chip--static">${esc(g.name)}</span>`;
