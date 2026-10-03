@@ -7,7 +7,7 @@ The app has no build step and no test framework, so the tests match: plain files
 | Unit | `tests/index.html` | Serve the repo with any static server and open `/tests/index.html` | Pure logic in `lib.js` (23 tests): taste comparison, yearly recap, recommendation merging, search query building and escaping, album-type labels, divisive-album rule, MusicBrainz paging window |
 | Database flows | `tests/db-flows.sql` | Paste into the Supabase SQL editor (or any SQL runner). It always rolls back and prints results in the error message | Rating persistence, duplicate prevention, aggregates, edit/remove, listening status, public lists seen by another user, follow + feed, and that one user cannot modify another's data (run as the real `authenticated` and `anon` roles, so row-level security applies) |
 | API security | `tests/security-check.ps1` | `powershell -File tests/security-check.ps1` | With only the public key: private tables return nothing, public views leak no user ids or emails, writes and signed-in-only functions are refused |
-| Client flows | `tests/client-flows.js` | Paste into the browser console on the running app. It swaps the database client for a recording stub (nothing is written) and drives the real album page | 43 checks: tapping a score saves only the score, a failed save reverts and explains, saving a review omits sharing flags, removing a rating resets the page, Listened / Want / Favorite / Rated never contradict each other, signed-out taps open sign-in instead of writing, Follow and Unfollow call the checked server functions and update the count, profile setup validates and starts private, list creation, the report dialog, and password reset (forgot password and the new-password step, with the auth client stubbed so no email is sent) |
+| Client flows | `tests/client-flows.js` | Paste into the browser console on the running app. It swaps the database client for a recording stub (nothing is written) and drives the real album page | 49 checks: tapping a score saves only the score, a failed save reverts and explains, saving a review omits sharing flags, removing a rating resets the page, Listened / Want / Favorite / Rated never contradict each other, signed-out taps open sign-in instead of writing, Follow and Unfollow call the checked server functions and update the count, profile setup validates and starts private, list creation, the report dialog, and password reset (forgot password and the new-password step, with the auth client stubbed so no email is sent), data export, and the delete-account request (network and prompt stubbed) |
 | Manual UI | the checklist below | A person, in a browser | Everything that needs a real sign-in |
 
 ## The 12 end-to-end flows
@@ -41,3 +41,9 @@ level only.
 6. In a private window, open the profile and list URLs signed out.
 7. From a second account, follow the first, and check Following shows the rating and list.
 8. Try the keyboard: Tab to the score buttons, arrows to move, Enter to rate.
+
+## Not covered by any automated test
+
+- `api/delete-account.js` on the deployed site. Its logic (method, missing key, missing token, wrong confirmation, expired session, deleting only the token's own user) was exercised once against a pasted copy with a stubbed fetch, not the deployed function. It needs the `SUPABASE_SERVICE_ROLE_KEY` environment variable in Vercel; until that is set it answers 501 and the app says deletion isn't available.
+- Real emails (sign-up confirmation, password reset). The Supabase Auth URL settings must include the live site.
+- Real sign-in sessions, and anything involving two people at once in the browser.

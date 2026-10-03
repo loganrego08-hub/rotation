@@ -186,6 +186,31 @@
   check("opening sign-in afterwards restores the normal form", !document.querySelector("#authEmailField").hidden && document.querySelector("#authTitle").textContent === "Sign in");
   document.querySelector("#authClose").click();
 
+  /* ---- your data: export and account deletion (network, prompt and sign-out are stubbed) ---- */
+  user = { id: "x", email: "test@example.com", created_at: "2026-01-01" }; profile = null;
+  stubDb({ tables: { ratings: [{ album_id: "a", score: 8 }], lists: [] } });
+  await renderProfileEdit(); await wait(600);
+  const blobs = []; const realCreate = URL.createObjectURL; URL.createObjectURL = (b) => { blobs.push(b); return "blob:test"; };
+  document.querySelector("#exportData").click(); await wait(700); URL.createObjectURL = realCreate;
+  const exported = blobs[0] ? JSON.parse(await blobs[0].text()) : null;
+  check("Download my data produces a JSON file with the account and ratings", exported && exported.account.email === "test@example.com" && Array.isArray(exported.ratings) && exported.ratings[0]?.score === 8, JSON.stringify(exported)?.slice(0, 120));
+
+  const realFetch = window.fetch, realPrompt = window.prompt, fetched = []; let signedOut = 0, reply = { ok: true, status: 200, body: { ok: true } };
+  sb.auth.getSession = async () => ({ data: { session: { access_token: "tok123" } } }); sb.auth.signOut = async () => { signedOut++; };
+  window.fetch = async (url, opts) => { if (String(url).includes("/api/delete-account")) { fetched.push({ url, opts }); return { ok: reply.ok, status: reply.status, json: async () => reply.body }; } return realFetch(url, opts); };
+  window.prompt = () => "nope"; document.querySelector("#deleteAccount").click(); await wait(300);
+  check("deleting needs the exact word DELETE: anything else sends nothing", fetched.length === 0 && signedOut === 0);
+  window.prompt = () => null; document.querySelector("#deleteAccount").click(); await wait(200);
+  check("cancelling the prompt sends nothing", fetched.length === 0);
+  reply = { ok: false, status: 501, body: { error: "Account deletion isn't set up on this server yet." } };
+  window.prompt = () => "DELETE"; document.querySelector("#deleteAccount").click(); await wait(500);
+  check("a server that can't delete explains why and keeps you signed in", /isn't set up/.test(document.querySelector(".toast--error")?.textContent || "") && signedOut === 0);
+  reply = { ok: true, status: 200, body: { ok: true } }; document.querySelector("#deleteAccount").click(); await wait(600);
+  const call = fetched.at(-1);
+  check("confirmed deletion posts the person's own token and the confirmation", call && call.opts.method === "POST" && call.opts.headers.Authorization === "Bearer tok123" && JSON.parse(call.opts.body).confirm === "DELETE", JSON.stringify(call?.opts));
+  check("after deletion the person is signed out and sent home", signedOut === 1 && location.hash === "#/");
+  window.fetch = realFetch; window.prompt = realPrompt;
+
   const fails = results.filter((r) => r.startsWith("FAIL")).length;
   results.forEach((r) => console.log(r));
   console.log(fails ? `${fails} FAILED` : `All ${results.length} checks passed`);

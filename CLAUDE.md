@@ -61,6 +61,7 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   `vercel.json` sets basic security headers (no CSP yet: the app uses inline `onerror` handlers, so a strict CSP would need those moved first).
 - Password reset: Forgot password sends a Supabase reset email (`resetPasswordForEmail`, redirect = this site); the PASSWORD_RECOVERY event opens `openRecovery`.
   The Supabase dashboard (Authentication > URL Configuration) must list the live site as Site URL / redirect URL or the email link points elsewhere.
+- Your data (`#/me/edit`): Download my data (client-side JSON of the person's own rows) and Delete my account (`api/delete-account.js`: verifies the caller's token with Supabase,\r\n  then deletes only that user via the admin API; cascading foreign keys remove their data). Needs `SUPABASE_SERVICE_ROLE_KEY` in Vercel env vars only; never commit it.
 - See `tests/README.md` for the unit, database, API-security and manual test layers and which of the 12 flows have actually been run.
 - Library (`#/me`): `LIB_VIEWS` (All rated, Recently rated, Highest, Lowest, Favorites, Want to listen, Listened, With notes) x `LIB_SORTS`
   (date, rating, artist, title, release year; missing values always sort last; rating sorts hidden for Want to listen) + title/artist filter.

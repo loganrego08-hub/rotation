@@ -1975,8 +1975,39 @@ async function renderProfileEdit() {
       <div class="save-bar" style="margin-top:0">
         <button type="submit" class="btn btn--primary" id="pSave"><span>${profile ? "Save profile" : "Create profile"}</span></button>
         ${profile ? `<a class="btn btn--ghost" href="${profileHref(profile.username)}">Cancel</a>` : ""}</div>
-    </form>`;
+    </form>
+    <section class="fieldset" style="margin-top:var(--s-10);max-width:560px" aria-labelledby="yourdata-h">
+      <h2 class="t-section" id="yourdata-h">Your data</h2>
+      <p class="text-2" style="font-size:var(--fs-sm)">Download everything Rotation stores about you as a file, or delete your account. Deleting removes your ratings, reviews, lists, profile and follows for good.</p>
+      <div class="chips">${button("Download my data", { id: "exportData", iconName: "share" })}<button type="button" class="btn btn--ghost" id="deleteAccount" data-danger="1">${icon("close")}<span>Delete my account</span></button></div>
+    </section>`;
 
+  $("#exportData").onclick = async () => {
+    const btn = $("#exportData"); btn.setAttribute("aria-busy", "true");
+    try {
+      const tables = ["profiles", "ratings", "album_status", "profile_pins", "lists", "list_items", "follows", "review_likes", "notification_prefs"];
+      const out = { exported_at: new Date().toISOString(), account: { id: user.id, email: user.email, created_at: user.created_at } };
+      for (const t of tables) { const { data, error } = await sb.from(t).select("*"); if (!error) out[t] = data || []; }
+      const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `rotation-data-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      toast("Your data was downloaded");
+    } catch { toast("Couldn't prepare your data. Try again.", "error"); }
+    btn.removeAttribute("aria-busy");
+  };
+  $("#deleteAccount").onclick = async () => {
+    const typed = prompt("This permanently deletes your account, ratings, reviews, lists, profile and follows. It cannot be undone.\n\nType DELETE to confirm.");
+    if (typed !== "DELETE") { if (typed !== null) toast("Nothing was deleted. You have to type DELETE exactly.", "info"); return; }
+    const btn = $("#deleteAccount"); btn.setAttribute("aria-busy", "true");
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const r = await fetch("/api/delete-account", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token || ""}` }, body: JSON.stringify({ confirm: "DELETE" }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { btn.removeAttribute("aria-busy"); return toast(j.error || "Couldn't delete the account.", "error"); }
+      await sb.auth.signOut(); profile = null;
+      toast("Your account was deleted", "info"); location.hash = "#/";
+    } catch { btn.removeAttribute("aria-busy"); toast("Couldn't reach the server. Nothing was deleted.", "error"); }
+  };
   $("#pUser").addEventListener("input", (e) => { $("#uPrev").textContent = e.target.value.trim().toLowerCase() || "username"; });
   $("#pBio").addEventListener("input", (e) => { $("#bioCount").textContent = e.target.value.length; });
   $("#pform").addEventListener("change", (e) => { if (e.target.name === "avatar") avatarId = e.target.value || null; });
