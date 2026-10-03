@@ -184,10 +184,15 @@ function button(label, { variant = "secondary", size, id, href, iconName, attrs 
               : `<button type="button" class="${cls}" ${id ? `id="${id}"` : ""} ${attrs}>${inner}</button>`;
 }
 
-function artwork(src, alt, cls = "") {
+// Cover Art Archive serves 250 and 500px versions (and 1200 for some): small covers get a 500px version on high-density screens.
+// `priority` is for the one image that matters most on a page (it loads eagerly and first).
+function artwork(src, alt, cls = "", { priority = false } = {}) {
   const fallback = `<div class="art__fallback">${icon("disc")}</div>`;
   if (!src) return `<div class="art ${cls}" role="img" aria-label="${esc(alt)}">${fallback}</div>`;
-  return `<div class="art ${cls}"><img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" decoding="async"
+  // Only 250 -> 500 is used: the 1200px size isn't generated for every release, and a failed srcset candidate would hide the cover
+  const m = /^(.*\/front-)250$/.exec(src);
+  const srcset = m ? ` srcset="${esc(src)} 1x, ${esc(m[1] + "500")} 2x"` : "";
+  return `<div class="art ${cls}"><img src="${esc(src)}"${srcset} alt="${esc(alt)}" ${priority ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"'} decoding="async"
     onerror="this.parentNode.insertAdjacentHTML('beforeend', this.dataset.fb); this.remove()" data-fb="${esc(fallback)}"></div>`;
 }
 const smallArt = (u) => (u || "").replace("/front-500", "/front-250");
@@ -1330,7 +1335,7 @@ async function renderAlbum(id) {
 
   view().innerHTML = `
     <article class="album">
-      <div class="album__art">${artwork(album.cover_url, `${album.title} by ${album.artist}`)}</div>
+      <div class="album__art">${artwork(album.cover_url, `${album.title} by ${album.artist}`, "", { priority: true })}</div>
       <div>
         <header class="album__head">
           <p class="t-meta" id="albumEyebrow"${eyebrow() ? "" : " hidden"}>${esc(eyebrow())}</p>
