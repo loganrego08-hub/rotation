@@ -15,6 +15,16 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - MusicBrainz for search, album pages, tracklists, artist pages (1 req/sec limit; see `mbSlow`).
   Cover Art Archive for MusicBrainz covers (slow but reliable).
 
+## Routes and discovery
+- Hash routes: `#/` Discover, `#/explore`, `#/genre/:slug`, `#/decade/:start`, `#/lists/:tab` (charts, community, mine),
+  `#/search/:term`, `#/me`, `#/album/:mbid`, `#/artist/:mbid`. Main nav is Discover, Explore, Lists, Search; phones get a bottom tab bar.
+- Home sections are built with `homeSection` + `runSection` (lazy-loaded below the fold). Each loader returns real data only:
+  community stats from Supabase, else a clearly labeled Billboard fallback. Never invent community activity.
+- `MIN_RATINGS` (3) gates "Highest rated"; "Under the radar" is 8+ with fewer than that.
+- `schema.sql` v3 adds views `album_activity` (7-day counts) and `recent_ratings` (scores only, no notes or user ids).
+  The app treats missing views as empty, so run v3 in the Supabase SQL editor to switch Trending and Recently Reviewed to live data.
+- Decade pages mix community-rated albums with a curated `DECADES` seed list (artwork via Apple, then Cover Art Archive).
+
 ## Design system (styles.css)
 - All values come from tokens in `:root`. Use tokens, never hard-coded colors or sizes.
 - Dark charcoal UI (#171717). Album artwork is the color; lime accent (#B9F36B) only for the

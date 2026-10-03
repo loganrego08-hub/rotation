@@ -155,6 +155,7 @@ const ICONS = {
   grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/>',
   note: '<path d="M6 4h9l3 3v13H6z"/><path d="M9 11h6M9 15h4"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/>',
+  compass: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
 };
 const icon = (name, cls = "icon") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -173,9 +174,9 @@ function artwork(src, alt, cls = "") {
 }
 const smallArt = (u) => (u || "").replace("/front-500", "/front-250");
 
-function scoreChip(value, { mine = false, count } = {}) {
+function scoreChip(value, { mine = false, count, label } = {}) {
   if (value == null) return "";
-  const title = mine ? "Your score" : count != null ? `Average of ${plural(count, "rating")}` : "Average score";
+  const title = label || (mine ? "Your score" : count != null ? `Average of ${plural(count, "rating")}` : "Average score");
   return `<span class="score${mine ? " score--mine" : ""}" title="${title}"><span class="sr">${title}: </span>${value}<small>/10</small></span>`;
 }
 
@@ -185,9 +186,9 @@ function metaLine(text, kind) {
   return `<span class="meta${kind ? ` meta--${kind}` : ""}">${ic ? icon(ic) : ""}<span>${esc(text)}</span></span>`;
 }
 
-function albumCard(it, { rank, score, mine = false, count, meta, metaKind } = {}) {
+function albumCard(it, { rank, score, mine = false, count, scoreLabel, meta, metaKind } = {}) {
   const m = meta != null ? { text: meta, kind: metaKind } : it.move ? { text: it.move.text, kind: it.move.kind } : it.why ? { text: it.why } : null;
-  const foot = (m || score != null) ? `<div class="album-card__foot">${m ? metaLine(m.text, m.kind) : "<span></span>"}${scoreChip(score, { mine, count })}</div>` : "";
+  const foot = (m || score != null) ? `<div class="album-card__foot">${m ? metaLine(m.text, m.kind) : "<span></span>"}${scoreChip(score, { mine, count, label: scoreLabel })}</div>` : "";
   return `<a class="album-card${rank ? " album-card__ranked" : ""}" href="${albumHref(it)}">
     ${artwork(smallArt(it.art), `${it.title} by ${it.artist || "unknown artist"}`)}
     <div class="album-card__body">
@@ -350,20 +351,39 @@ $("#authForm").addEventListener("submit", async (e) => {
 /* ==========================================================================
    Search dropdown with keyboard navigation
    ========================================================================== */
+/* Two modes share one form: "menu" (hero) shows a dropdown and Enter opens the
+   full results page; "page" (the Search view) renders results inline. */
 let searchTimer, searchSeq = 0;
-const q = $("#q"), results = $("#results");
-function setResults(open) { results.hidden = !open; q.setAttribute("aria-expanded", String(open)); }
-q.addEventListener("input", () => {
+const searchHref = (term) => `#/search${term ? "/" + encodeURIComponent(term) : ""}`;
+const searchForm = ({ mode, value = "", cls = "" }) => `<form class="search ${cls}" role="search" data-searchform>
+  ${icon("search", "search__icon")}
+  <input class="input input--search" type="search" data-search="${mode}" value="${esc(value)}" placeholder="Search albums and artists" autocomplete="off" aria-label="Search albums and artists"${mode === "menu" ? ' aria-expanded="false"' : ""}>
+  ${mode === "menu" ? `<div class="menu menu--search" role="listbox" hidden></div>` : ""}</form>`;
+const searchInput = (e) => e.target.closest?.("[data-search]");
+const menuOf = (input) => input.closest(".search")?.querySelector(".menu--search");
+function setResults(input, open) {
+  const m = menuOf(input);
+  if (!m) return;
+  m.hidden = !open;
+  input.setAttribute("aria-expanded", String(open));
+}
+document.addEventListener("input", (e) => {
+  const input = searchInput(e);
+  if (!input) return;
   clearTimeout(searchTimer);
-  const v = q.value.trim();
-  if (v.length < 2) return setResults(false);
-  searchTimer = setTimeout(() => search(v), 320);
+  const v = input.value.trim();
+  if (input.dataset.search === "page") { searchTimer = setTimeout(() => pageSearch(v, true), 350); return; }
+  if (v.length < 2) return setResults(input, false);
+  searchTimer = setTimeout(() => search(input, v), 320);
 });
-q.addEventListener("keydown", (e) => {
-  const items = $$(".menu__item", results);
+document.addEventListener("keydown", (e) => {
+  const input = searchInput(e);
+  if (!input || input.dataset.search !== "menu") return;
+  const menu = menuOf(input);
+  const items = $$(".menu__item", menu);
   const i = items.findIndex((x) => x.getAttribute("aria-selected") === "true");
-  if (e.key === "Escape") { setResults(false); q.blur(); }
-  if (!items.length || results.hidden) return;
+  if (e.key === "Escape") { setResults(input, false); input.blur(); }
+  if (!items.length || menu.hidden) return;
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     const n = (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
@@ -372,21 +392,65 @@ q.addEventListener("keydown", (e) => {
   }
   if (e.key === "Enter" && i >= 0) { e.preventDefault(); items[i].click(); }
 });
-document.addEventListener("click", (e) => { if (!e.target.closest(".search")) setResults(false); });
-results.addEventListener("click", (e) => { if (e.target.closest("a")) { setResults(false); q.value = ""; } });
+document.addEventListener("submit", (e) => {
+  const form = e.target.closest?.("[data-searchform]");
+  if (!form) return;
+  e.preventDefault();
+  const input = $("[data-search]", form), v = input.value.trim();
+  if (v.length < 2) return input.focus();
+  clearTimeout(searchTimer);
+  if (input.dataset.search === "page") return pageSearch(v, true);
+  setResults(input, false);
+  location.hash = searchHref(v);
+});
+document.addEventListener("click", (e) => {
+  $$(".menu--search").forEach((m) => { if (!m.hidden && !m.closest(".search").contains(e.target)) setResults($("[data-search]", m.closest(".search")), false); });
+  const link = e.target.closest(".menu--search a");
+  if (link) { const input = $("[data-search]", link.closest(".search")); setResults(input, false); input.value = ""; }
+});
 
-async function search(term) {
+async function fetchSearch(term, artists, albums) {
+  const [a, g] = await Promise.all([
+    getJSON(`${MB}/artist?query=${encodeURIComponent(term)}&fmt=json&limit=${artists}`).catch(() => ({ artists: [] })),
+    getJSON(`${MB}/release-group?query=${encodeURIComponent(`${term} AND primarytype:album`)}&fmt=json&limit=${albums}`),
+  ]);
+  return { ar: (a.artists || []).filter((x) => x.score >= 90), al: g["release-groups"] || [] };
+}
+
+async function pageSearch(term, replace = false) {
+  const el = $("#sres");
+  if (!el) return;
   const seq = ++searchSeq;
-  setResults(true);
+  if (replace) history.replaceState(null, "", searchHref(term));
+  if (term.length < 2) {
+    el.innerHTML = emptyState({ iconName: "search", title: "Search Rotation", body: "Find any album or artist, open it, and give it a score.", compact: true });
+    return;
+  }
+  el.innerHTML = `${loadingLabel("Searching")}<div class="grid">${skCards(8)}</div>`;
+  try {
+    const { ar, al } = await fetchSearch(term, 6, 24);
+    if (seq !== searchSeq || !el.isConnected) return;
+    if (!ar.length && !al.length) {
+      el.innerHTML = emptyState({ iconName: "search", title: `No matches for “${term}”`, body: "Try the artist and album together, or check the spelling.", compact: true });
+      return;
+    }
+    el.innerHTML = `
+      ${ar.length ? `<section class="section">${sectionHead("Artists")}<div class="grid grid--artists">${ar.map((a) =>
+        artistCard({ id: a.id, name: a.name, sub: [a.type, a.area?.name].filter(Boolean).join(", ") })).join("")}</div></section>` : ""}
+      ${al.length ? `<section class="section">${sectionHead("Albums")}<div class="grid">${al.map((g) =>
+        albumCard({ id: g.id, title: g.title, artist: artistName(g["artist-credit"]), art: coverUrl(g.id, 250) }, { meta: year(g["first-release-date"]) || null })).join("")}</div></section>` : ""}`;
+  } catch {
+    if (seq === searchSeq && el.isConnected) el.innerHTML = errorState({ title: "Search is unavailable", body: "MusicBrainz may be busy. Try again in a moment.", retry: () => pageSearch(term) });
+  }
+}
+
+async function search(input, term) {
+  const seq = ++searchSeq, results = menuOf(input);
+  setResults(input, true);
   results.innerHTML = `<p class="menu__note">Searching…</p>`;
   try {
-    const [artists, albums] = await Promise.all([
-      getJSON(`${MB}/artist?query=${encodeURIComponent(term)}&fmt=json&limit=3`).catch(() => ({ artists: [] })),
-      getJSON(`${MB}/release-group?query=${encodeURIComponent(`${term} AND primarytype:album`)}&fmt=json&limit=8`),
-    ]);
+    const { ar, al } = await fetchSearch(term, 3, 6);
     if (seq !== searchSeq) return;
-    const ar = (artists.artists || []).filter((a) => a.score >= 90);
-    const al = albums["release-groups"] || [];
     if (!ar.length && !al.length) { results.innerHTML = `<p class="menu__note">No matches for “${esc(term)}”. Try the artist and album together.</p>`; return; }
     results.innerHTML = `
       ${ar.length ? `<div class="menu__group"><div class="menu__label">Artists</div>${ar.map((a) => `
@@ -394,7 +458,8 @@ async function search(term) {
         <span class="menu__text"><strong>${esc(a.name)}</strong><span>${esc([a.type, a.area?.name].filter(Boolean).join(", ") || "Artist")}</span></span></a>`).join("")}</div>` : ""}
       ${al.length ? `<div class="menu__group"><div class="menu__label">Albums</div>${al.map((g) => `
         <a class="menu__item" role="option" href="#/album/${g.id}">${artwork(coverUrl(g.id, 250), g.title, "thumb")}
-        <span class="menu__text"><strong>${esc(g.title)}</strong><span>${esc(artistName(g["artist-credit"]))}${g["first-release-date"] ? `, ${year(g["first-release-date"])}` : ""}</span></span></a>`).join("")}</div>` : ""}`;
+        <span class="menu__text"><strong>${esc(g.title)}</strong><span>${esc(artistName(g["artist-credit"]))}${g["first-release-date"] ? `, ${year(g["first-release-date"])}` : ""}</span></span></a>`).join("")}</div>` : ""}
+      <div class="menu__group"><a class="menu__item" role="option" href="${searchHref(term)}">${icon("search")}<span class="menu__text"><strong>See all results for “${esc(term)}”</strong></span></a></div>`;
   } catch {
     if (seq === searchSeq) results.innerHTML = `<p class="menu__note">Search is unavailable right now. Try again in a moment.</p>`;
   }
@@ -411,81 +476,330 @@ async function myRatings(fields = "score, standout_tracks, thoughts, updated_at,
   return (data || []).filter((r) => r.album);
 }
 
-/* ---------- Home ---------- */
+/* ---------- Discover (home) ----------
+   Every section is fed by real data: community ratings from Supabase and this
+   week's Billboard charts. When there isn't enough community activity yet, a
+   section says so and falls back to charts. Nothing is invented. */
+const MIN_RATINGS = 3;       // ratings an album needs before it counts as "highest rated"
+const keyOf = (it) => norm(it.title) + "|" + norm(it.artist);
+
+function memo(key, fn) {
+  if (!cache.has(key)) { const p = fn(); cache.set(key, p); p.catch(() => cache.delete(key)); }
+  return cache.get(key);
+}
+const communityStats = () => memo("m:stats", async () => {
+  if (!sb) return [];
+  const { data, error } = await sb.from("album_stats").select("*").order("avg_score", { ascending: false }).order("rating_count", { ascending: false }).limit(200);
+  if (error) throw error;
+  return data || [];
+});
+// Views added in schema v3. If they haven't been created yet, treat them as empty.
+const optionalView = (name, build) => memo("m:" + name, async () => {
+  if (!sb) return [];
+  const { data, error } = await build(sb.from(name));
+  return error ? [] : data || [];
+});
+const statCard = (s, opts = {}) => albumCard({ id: s.album_id, title: s.title, artist: s.artist, art: s.cover_url },
+  { score: s.avg_score, count: s.rating_count, meta: plural(s.rating_count, "rating"), ...opts });
+function ago(ts) {
+  const m = Math.max(0, Math.round((Date.now() - new Date(ts)) / 60000));
+  if (m < 60) return m <= 1 ? "Just now" : `${m} min ago`;
+  if (m < 1440) return `${Math.round(m / 60)} hr ago`;
+  const d = Math.round(m / 1440);
+  return d === 1 ? "Yesterday" : d < 14 ? `${d} days ago` : fmtDate(String(ts).slice(0, 10), "short");
+}
+const lazy = (el, fn) => {
+  if (!("IntersectionObserver" in window)) return fn();
+  const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); fn(); } }, { rootMargin: "400px 0px" });
+  io.observe(el);
+};
+
+function homeSection(id, title, sub, { link, linkLabel } = {}) {
+  return `<section class="section" id="${id}" aria-labelledby="${id}-h">
+    ${sectionHead(title, { sub, link, linkLabel, id: `${id}-sub` }).replace("<h2", `<h2 id="${id}-h"`)}
+    <div class="section__body">${loadingLabel(`Loading ${title}`)}<div class="row">${skCards(7)}</div></div></section>`;
+}
+// load() resolves to { sub?, cards: [html], empty?: { title, body, actions } } and may throw
+function runSection(id, load, { defer = false } = {}) {
+  const sec = $(`#${id}`);
+  if (!sec) return;
+  const run = async () => {
+    const body = $(".section__body", sec);
+    try {
+      const r = await load();
+      if (!sec.isConnected) return;
+      if (r.sub != null) $(`#${id}-sub`).textContent = r.sub;
+      body.innerHTML = r.cards?.length ? `<div class="row">${r.cards.join("")}</div>`
+        : emptyState({ iconName: "disc", compact: true, ...r.empty });
+    } catch {
+      if (!sec.isConnected) return;
+      body.innerHTML = errorState({ title: "This section didn't load", body: "Check your connection and try again.",
+        retry: () => { body.innerHTML = `<div class="row">${skCards(7)}</div>`; run(); } });
+    }
+  };
+  defer ? lazy(sec, run) : run();
+}
+
+async function loadTrending() {
+  const act = await optionalView("album_activity", (t) => t.select("*").order("recent_count", { ascending: false }).order("recent_avg", { ascending: false }).limit(24));
+  if (act.length >= 4) {
+    return { sub: "Most rated by the community in the past 7 days",
+      cards: act.map((s) => albumCard({ id: s.album_id, title: s.title, artist: s.artist, art: s.cover_url },
+        { score: s.recent_avg, count: s.recent_count, meta: `${plural(s.recent_count, "rating")} this week` })) };
+  }
+  const c = await billboard("billboard-200");
+  const movers = c.items.filter((x) => x.lastWeek != null && x.lastWeek - x.rank >= 1).sort((a, b) => (b.lastWeek - b.rank) - (a.lastWeek - a.rank)).slice(0, 14);
+  const list = movers.length >= 4 ? movers : c.items.slice(0, 14);
+  return { sub: movers.length >= 4 ? "Climbing the Billboard 200 this week. Community activity takes over as more people rate."
+                                   : "Leading the Billboard 200 this week. Community activity takes over as more people rate.",
+    cards: list.map((it) => albumCard(it)) };
+}
+
+async function loadNewReleases() {
+  const charts = (await Promise.all([billboard("billboard-200"), ...GENRES.slice(0, 6).map(genreChart)].map((p) => p.catch(() => null)))).filter(Boolean);
+  if (!charts.length) throw new Error("charts unavailable");
+  const seen = new Set(), fresh = [];
+  for (const c of charts) for (const it of c.items) {
+    if (it.weeks == null || it.weeks > 4 || seen.has(keyOf(it))) continue;
+    seen.add(keyOf(it));
+    fresh.push(it);
+  }
+  fresh.sort((a, b) => a.weeks - b.weeks);
+  return {
+    sub: "Debuted on Billboard's charts in the last four weeks",
+    cards: fresh.slice(0, 18).map((it) => albumCard(it, it.weeks <= 1 ? { meta: "Debuted this week", metaKind: "new" } : { meta: `Week ${it.weeks} on the charts` })),
+    empty: { title: "No fresh debuts right now", body: "New albums land on the charts every Tuesday. Check back then.",
+      actions: button("Browse the charts", { href: "#/lists/charts" }) },
+  };
+}
+
+async function loadHighest() {
+  const top = (await communityStats()).filter((s) => s.rating_count >= MIN_RATINGS).slice(0, 24);
+  if (top.length) return { sub: `Best-scoring albums with ${MIN_RATINGS}+ ratings`, cards: top.map((s, i) => statCard(s, { rank: i + 1 })) };
+  const c = await billboard("billboard-200");
+  return { sub: `Albums need ${MIN_RATINGS}+ ratings to rank here. Until then, the most popular albums right now.`,
+    cards: c.items.slice(0, 14).map((it) => albumCard(it, { rank: it.rank })) };
+}
+
+async function loadRadar() {
+  const few = (await communityStats()).filter((s) => s.rating_count < MIN_RATINGS && s.avg_score >= 8).slice(0, 24);
+  if (few.length) return { sub: `Scoring 8 or higher, with fewer than ${MIN_RATINGS} ratings so far`, cards: few.map((s) => statCard(s)) };
+  const c = await billboard("billboard-200");
+  return { sub: "No early community favorites yet. Deeper cuts from the Billboard 200 in the meantime.",
+    cards: c.items.slice(25, 41).map((it) => albumCard(it, { rank: it.rank })) };
+}
+
+const COMPILATION = /\b(best of|greatest hits|the very best|anthology|essential|collection|hits)\b/i;
+// Albums charting in a genre but absent from the Billboard 200: popular with their audience, missed by the mainstream
+async function loadGems() {
+  const picks = ["alternative", "americana", "electronic", "jazz", "hard-rock", "latin"].map((s) => GENRES.find((g) => g.slug === s));
+  const main = await billboard("billboard-200").then((c) => new Set(c.items.map(keyOf))).catch(() => new Set());
+  const lists = (await Promise.all(picks.map((g) => genreChart(g)
+    .then((c) => c.items.filter((x) => !main.has(keyOf(x)) && !COMPILATION.test(x.title)).slice(0, 4).map((x) => ({ ...x, move: null, why: `#${x.rank} in ${g.name}` })))
+    .catch(() => null)))).filter(Boolean);
+  if (!lists.length) throw new Error("charts unavailable");
+  const out = [], seen = new Set();
+  for (let i = 0; i < 4; i++) lists.forEach((l) => { const it = l[i]; if (it && !seen.has(keyOf(it))) { seen.add(keyOf(it)); out.push(it); } });
+  return { sub: "Charting with their own audiences, but missing from the Billboard 200",
+    cards: out.slice(0, 18).map((it) => albumCard(it)),
+    empty: { title: "No hidden gems this week", body: "Try browsing by genre instead.", actions: button("Explore genres", { href: "#/explore" }) } };
+}
+
+async function loadRecent() {
+  const rows = await optionalView("recent_ratings", (t) => t.select("*").order("rated_at", { ascending: false }).limit(40));
+  const seen = new Set(), list = [];
+  for (const r of rows) if (!seen.has(r.album_id)) { seen.add(r.album_id); list.push(r); }
+  return {
+    sub: "Latest scores from the community. Notes stay private.",
+    cards: list.slice(0, 18).map((r) => albumCard({ id: r.album_id, title: r.title, artist: r.artist, art: r.cover_url },
+      { score: r.score, scoreLabel: "A community rating", meta: `Rated ${ago(r.rated_at)}` })),
+    empty: { iconName: "star", title: "No ratings yet", body: "When people start scoring albums, the latest ones show up here.",
+      actions: button("Find an album to rate", { variant: "primary", href: "#/search", iconName: "search" }) },
+  };
+}
+
+async function loadHeroMosaic() {
+  const el = $("#mosaic");
+  if (!el) return;
+  try {
+    const c = await billboard("billboard-200");
+    if (!el.isConnected) return;
+    const top = c.items.filter((x) => x.art).slice(0, 6);
+    if (top.length < 6) throw new Error("not enough art");
+    el.innerHTML = top.map((it) => `<a class="hero__cover" href="${albumHref(it)}" title="${esc(it.title)}, ${esc(it.artist)}">${artwork(it.art, `${it.title} by ${it.artist}`)}</a>`).join("");
+  } catch { el?.closest(".hero")?.classList.add("hero--solo"); el?.remove(); }
+}
+
+const decadeGrid = () => `<div class="decades">${DECADES.map((d) =>
+  `<a class="decade-card" href="#/decade/${d.start}"><span class="decade-card__num">${d.start}s</span><span class="decade-card__sub">${d.start}–${d.start + 9}</span></a>`).join("")}</div>`;
+
 async function renderHome() {
   document.title = "Rotation";
+  ["m:stats", "m:album_activity", "m:recent_ratings"].forEach((k) => cache.delete(k));
   view().innerHTML = `
-    <section class="intro">
-      <h1 class="t-hero">What's in rotation</h1>
-      <p class="t-lead">Score albums out of 10, mark the tracks that stay with you, and see where everyone else lands.</p>
-    </section>
-    <section class="section" aria-labelledby="h-charts">
-      ${sectionHead("On the charts", { sub: "Billboard 200", id: "chartsSub" }).replace("<h2", '<h2 id="h-charts"')}
-      <div class="row" id="charts">${loadingLabel("Loading chart")}${skCards(7)}</div>
+    <section class="hero">
+      <div class="hero__copy">
+        <h1 class="t-hero">Find your next rotation.</h1>
+        <p class="t-lead">Discover something new. Rate what moves you.</p>
+        ${searchForm({ mode: "menu", cls: "search--hero" })}
+        <nav class="chips" aria-label="Browse genres">${GENRES.slice(0, 5).map((g) => `<a class="chip" href="#/genre/${g.slug}">${esc(g.name)}</a>`).join("")}<a class="chip" href="#/explore">More</a></nav>
+      </div>
+      <div class="hero__mosaic" id="mosaic" aria-label="Top albums on this week's Billboard 200">${Array.from({ length: 6 }, () => `<div class="sk art"></div>`).join("")}</div>
     </section>
     <section class="section" id="recShelf" hidden>
       ${sectionHead("Recommended for you", { sub: "", id: "recWhy" })}
       <div class="row" id="recs">${skCards(6)}</div>
     </section>
-    <section class="section">
-      ${sectionHead("Browse by genre", { sub: "Billboard's weekly album charts", link: "#/genres", linkLabel: "All genres" })}
+    ${homeSection("sec-trending", "Trending this week", "", { link: "#/lists/charts", linkLabel: "Charts" })}
+    ${homeSection("sec-new", "New releases", "", { link: "#/lists/charts", linkLabel: "Charts" })}
+    ${homeSection("sec-top", "Highest rated", "", { link: "#/lists/community", linkLabel: "Full list" })}
+    ${homeSection("sec-radar", "Under the radar", "", { link: "#/lists/community", linkLabel: "Top rated" })}
+    <section class="section" id="sec-genres" aria-labelledby="sec-genres-h">
+      ${sectionHead("Explore by genre", { sub: "Billboard's weekly album charts", link: "#/explore", linkLabel: "Explore all" }).replace("<h2", '<h2 id="sec-genres-h"')}
       <div class="genres">${GENRES.slice(0, 6).map(genreCard).join("")}</div>
     </section>
-    <section class="section">
-      ${sectionHead("Top rated on Rotation", { sub: "Highest community averages" })}
-      <div class="row" id="community">${skCards(6)}</div>
+    <section class="section" aria-labelledby="sec-decades-h">
+      ${sectionHead("Explore by decade", { sub: "Landmark albums and community picks from every era", link: "#/explore", linkLabel: "Explore all" }).replace("<h2", '<h2 id="sec-decades-h"')}
+      ${decadeGrid()}
     </section>
-    <section class="section">
-      ${sectionHead("Your shelf", { sub: "Your highest-scored albums", link: user ? "#/me" : null, linkLabel: "See all" })}
-      <div id="mine">${user ? skList(3) : ""}</div>
-    </section>`;
+    ${homeSection("sec-gems", "Hidden gems", "", { link: "#/explore", linkLabel: "Explore" })}
+    ${homeSection("sec-recent", "Recently reviewed", "", { link: "#/search", linkLabel: "Find albums" })}`;
+  loadHeroMosaic();
+  loadRecs();
+  runSection("sec-trending", loadTrending);
+  runSection("sec-new", loadNewReleases, { defer: true });
+  runSection("sec-top", loadHighest, { defer: true });
+  runSection("sec-radar", loadRadar, { defer: true });
+  lazy($("#sec-genres"), () => fillGenreCards($("#sec-genres")));
+  runSection("sec-gems", loadGems, { defer: true });
+  runSection("sec-recent", loadRecent, { defer: true });
+}
+
+/* ---------- Explore: genres and decades ---------- */
+function renderExplore() {
+  document.title = "Explore · Rotation";
+  view().innerHTML = `<header class="page-head"><h1 class="t-page">Explore</h1><p class="t-lead">Browse by genre, or travel through the decades.</p></header>
+    <section class="section">${sectionHead("By genre", { sub: "Billboard's weekly album charts, updated every Tuesday" })}
+      <div class="genres">${GENRES.map(genreCard).join("")}</div></section>
+    <section class="section">${sectionHead("By decade", { sub: "Landmark albums and what's rated on Rotation" })}${decadeGrid()}</section>`;
   fillGenreCards(view());
-  loadCharts(); loadCommunity(); loadShelf(); loadRecs();
 }
 
-async function loadCharts() {
-  const el = $("#charts");
+// Real, well-known albums for each decade. Artwork comes from Apple; opening one resolves it in MusicBrainz.
+const DECADES = [
+  { start: 1960, albums: [["The Beach Boys", "Pet Sounds", 1966], ["The Beatles", "Revolver", 1966], ["Bob Dylan", "Highway 61 Revisited", 1965], ["The Jimi Hendrix Experience", "Are You Experienced", 1967], ["The Velvet Underground", "The Velvet Underground & Nico", 1967], ["John Coltrane", "A Love Supreme", 1965], ["Aretha Franklin", "I Never Loved a Man the Way I Love You", 1967], ["Van Morrison", "Astral Weeks", 1968], ["The Beatles", "Abbey Road", 1969], ["The Rolling Stones", "Let It Bleed", 1969]] },
+  { start: 1970, albums: [["Fleetwood Mac", "Rumours", 1977], ["Marvin Gaye", "What's Going On", 1971], ["Pink Floyd", "The Dark Side of the Moon", 1973], ["Stevie Wonder", "Songs in the Key of Life", 1976], ["Joni Mitchell", "Blue", 1971], ["Led Zeppelin", "Led Zeppelin IV", 1971], ["Patti Smith", "Horses", 1975], ["Bob Dylan", "Blood on the Tracks", 1975], ["David Bowie", "Low", 1977], ["Bob Marley & The Wailers", "Exodus", 1977]] },
+  { start: 1980, albums: [["Michael Jackson", "Thriller", 1982], ["Prince", "Purple Rain", 1984], ["U2", "The Joshua Tree", 1987], ["Paul Simon", "Graceland", 1986], ["Pixies", "Doolittle", 1989], ["Beastie Boys", "Paul's Boutique", 1989], ["R.E.M.", "Murmur", 1983], ["N.W.A", "Straight Outta Compton", 1988], ["Guns N' Roses", "Appetite for Destruction", 1987], ["The Smiths", "The Queen Is Dead", 1986]] },
+  { start: 1990, albums: [["Radiohead", "OK Computer", 1997], ["Nirvana", "Nevermind", 1991], ["Lauryn Hill", "The Miseducation of Lauryn Hill", 1998], ["Nas", "Illmatic", 1994], ["My Bloody Valentine", "Loveless", 1991], ["Portishead", "Dummy", 1994], ["Björk", "Homogenic", 1997], ["Wu-Tang Clan", "Enter the Wu-Tang (36 Chambers)", 1993], ["Dr. Dre", "The Chronic", 1992], ["The Smashing Pumpkins", "Siamese Dream", 1993]] },
+  { start: 2000, albums: [["Radiohead", "Kid A", 2000], ["The Strokes", "Is This It", 2001], ["Kanye West", "The College Dropout", 2004], ["Arcade Fire", "Funeral", 2004], ["Amy Winehouse", "Back to Black", 2006], ["Outkast", "Stankonia", 2000], ["Daft Punk", "Discovery", 2001], ["Wilco", "Yankee Hotel Foxtrot", 2002], ["Madvillain", "Madvillainy", 2004], ["Animal Collective", "Merriweather Post Pavilion", 2009]] },
+  { start: 2010, albums: [["Kendrick Lamar", "To Pimp a Butterfly", 2015], ["Frank Ocean", "Channel Orange", 2012], ["Kanye West", "My Beautiful Dark Twisted Fantasy", 2010], ["Beyoncé", "Lemonade", 2016], ["Tame Impala", "Currents", 2015], ["Daft Punk", "Random Access Memories", 2013], ["Alabama Shakes", "Sound & Color", 2015], ["Tyler, the Creator", "IGOR", 2019], ["Weyes Blood", "Titanic Rising", 2019], ["Angel Olsen", "Burn Your Fire for No Witness", 2014]] },
+  { start: 2020, albums: [["Taylor Swift", "folklore", 2020], ["Phoebe Bridgers", "Punisher", 2020], ["Olivia Rodrigo", "SOUR", 2021], ["Beyoncé", "RENAISSANCE", 2022], ["Kendrick Lamar", "Mr. Morale & the Big Steppers", 2022], ["SZA", "SOS", 2022], ["Bad Bunny", "Un Verano Sin Ti", 2022], ["Charli xcx", "BRAT", 2024], ["Tyler, the Creator", "CHROMAKOPIA", 2024], ["Beyoncé", "COWBOY CARTER", 2024]] },
+];
+
+async function appleArt(artist, title) {
+  const key = "art:" + norm(artist) + "|" + norm(title);
+  try { const hit = sessionStorage.getItem(key); if (hit !== null) return hit || null; } catch {}
+  let art = null;
   try {
-    const c = await billboard("billboard-200");
-    if (!el.isConnected) return;
-    $("#chartsSub").textContent = `Billboard 200${c.week ? `, week of ${fmtDate(c.week)}` : ""}`;
-    el.innerHTML = c.items.slice(0, 24).map((it) => albumCard(it, { rank: it.rank })).join("");
-  } catch {
-    el.outerHTML = `<div id="charts">${errorState({ title: "Charts didn't load", body: "Billboard data is temporarily unavailable.", retry: loadChartsAgain })}</div>`;
+    const qs = new URLSearchParams({ term: `${artist} ${title}`, entity: "album", country: "us", limit: "5" });
+    const j = await getJSON(`https://itunes.apple.com/search?${qs}`);
+    const a = norm(artist).slice(0, 6), t = norm(title).slice(0, 8);
+    const hit = (j.results || []).find((x) => norm(x.artistName).startsWith(a) && norm(x.collectionName).startsWith(t));
+    if (hit) art = hit.artworkUrl100.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, "/600x600bb.jpg");
+  } catch {}
+  if (!art) {
+    // Apple doesn't carry every catalog album; fall back to the Cover Art Archive via MusicBrainz
+    try {
+      const lq = (s) => s.replace(/["\\]/g, "\\$&");
+      const j = await mbSlow(`${MB}/release-group?query=${encodeURIComponent(`releasegroup:"${lq(title)}" AND artist:"${lq(artist)}" AND primarytype:album`)}&fmt=json&limit=1`);
+      const id = j["release-groups"]?.[0]?.id;
+      if (id) art = coverUrl(id, 500);
+    } catch { return null; }
+  }
+  try { sessionStorage.setItem(key, art || ""); } catch {}
+  return art;
+}
+
+async function renderDecade(start) {
+  const d = DECADES.find((x) => x.start === start);
+  if (!d) return renderNotFound();
+  document.title = `${start}s · Rotation`;
+  const short = String(start).slice(2);
+  view().innerHTML = `
+    <header class="page-head"><p class="t-meta">${start}–${start + 9}</p><h1 class="t-title">${start}s</h1></header>
+    <nav class="chips" aria-label="Other decades" style="margin-bottom:var(--s-8)">${DECADES.map((x) =>
+      `<a class="chip" href="#/decade/${x.start}" ${x === d ? 'aria-current="page"' : ""}>${x.start}s</a>`).join("")}</nav>
+    <section class="section" id="dec-rated">${sectionHead("Rated on Rotation", { sub: `Community scores for albums released in the ${short}s`, id: "dec-rated-sub" })}
+      <div class="section__body"><div class="row">${skCards(6)}</div></div></section>
+    <section class="section">${sectionHead("Landmark albums", { sub: "A curated starting point for the decade" })}
+      <div class="grid" id="dec-land">${d.albums.map(([artist, title, yr]) => albumCard({ title, artist }, { meta: String(yr) })).join("")}</div></section>`;
+  d.albums.forEach(([artist, title], i) => appleArt(artist, title).then((url) => {
+    const slot = url && $$("#dec-land .album-card .art")[i];
+    if (slot?.isConnected) slot.outerHTML = artwork(url, `${title} by ${artist}`);
+  }));
+  const body = $("#dec-rated .section__body");
+  const emptyRated = () => emptyState({ iconName: "star", compact: true, title: `No ${start}s albums rated yet`,
+    body: "Rate one from this decade and it shows up here for everyone.", actions: button("Search albums", { href: "#/search", iconName: "search" }) });
+  if (!sb) { body.innerHTML = emptyRated(); return; }
+  const { data, error } = await sb.from("album_stats").select("*").gte("release_date", String(start)).lt("release_date", String(start + 10))
+    .order("avg_score", { ascending: false }).order("rating_count", { ascending: false }).limit(24);
+  if (!body.isConnected) return;
+  body.innerHTML = error ? errorState({ title: "Couldn't load community scores", retry: () => renderDecade(start) })
+    : data.length ? `<div class="row">${data.map((s) => statCard(s)).join("")}</div>` : emptyRated();
+}
+
+/* ---------- Lists ---------- */
+async function renderLists(tab) {
+  if (!["charts", "community", "mine"].includes(tab)) tab = "charts";
+  document.title = "Lists · Rotation";
+  view().innerHTML = `<header class="page-head"><h1 class="t-page">Lists</h1><p class="t-lead">Ranked lists from the charts, the community and your own shelf.</p></header>
+    ${tabs([["charts", "Charts"], ["community", "Top rated"], ["mine", "Your ranking"]], tab, "Lists")}
+    <div id="lbody">${loadingLabel("Loading list")}<div class="grid">${skCards(8)}</div></div>`;
+  $$("[data-tab]").forEach((b) => b.onclick = () => { location.hash = `#/lists/${b.dataset.tab}`; });
+  const el = $("#lbody");
+  const fail = () => { if (el.isConnected) el.innerHTML = errorState({ title: "This list didn't load", retry: () => renderLists(tab), compact: false }); };
+  if (tab === "charts") {
+    try {
+      const c = await billboard("billboard-200");
+      if (!el.isConnected) return;
+      el.innerHTML = `<section class="section">${sectionHead("Billboard 200", { sub: c.week ? `Week of ${fmtDate(c.week)}` : "" })}
+        <div class="grid">${c.items.map((it) => albumCard(it, { rank: it.rank })).join("")}</div></section>
+        <section class="section">${sectionHead("More charts", { sub: "One for every genre" })}
+        <nav class="chips" aria-label="Genre charts">${GENRES.map((g) => `<a class="chip" href="#/genre/${g.slug}">${esc(g.name)}</a>`).join("")}</nav></section>`;
+    } catch { fail(); }
+  } else if (tab === "community") {
+    try {
+      const top = (await communityStats()).filter((s) => s.rating_count >= MIN_RATINGS).slice(0, 50);
+      if (!el.isConnected) return;
+      el.innerHTML = top.length
+        ? `<section class="section">${sectionHead("Top rated on Rotation", { sub: `Albums with ${MIN_RATINGS}+ ratings, by average score` })}
+            <div class="grid">${top.map((s, i) => statCard(s, { rank: i + 1 })).join("")}</div></section>`
+        : emptyState({ iconName: "star", title: "No album has enough ratings yet", body: `Albums need ${MIN_RATINGS} ratings to appear here. Score a few and help build the list.`,
+            actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) });
+    } catch { fail(); }
+  } else if (!sb || !user) {
+    el.innerHTML = emptyState({ iconName: "user", title: "Your ranking lives here", body: "Sign in to keep a ranked list of everything you've scored.",
+      actions: button("Sign in", { variant: "primary", id: "listSignIn" }) });
+    $("#listSignIn")?.addEventListener("click", openAuth);
+  } else {
+    try {
+      const rows = await myRatings();
+      if (!el.isConnected) return;
+      el.innerHTML = rows.length ? `<div class="list">${rows.map((r, i) => listCard(r, i + 1)).join("")}</div>`
+        : emptyState({ iconName: "disc", title: "Nothing ranked yet", body: "Score an album and it lands here, ordered by your rating.",
+            actions: button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) });
+    } catch { fail(); }
   }
 }
-function loadChartsAgain() { $("#charts").outerHTML = `<div class="row" id="charts">${skCards(7)}</div>`; cache.delete(CHART("billboard-200")); loadCharts(); }
 
-async function loadCommunity() {
-  const el = $("#community");
-  if (!sb) { el.outerHTML = emptyState({ title: "Community scores are offline", compact: true }); return; }
-  const { data, error } = await sb.from("album_stats").select("*").order("avg_score", { ascending: false }).order("rating_count", { ascending: false }).limit(24);
-  if (!el.isConnected) return;
-  if (error) { el.outerHTML = `<div id="community">${errorState({ title: "Couldn't load community scores", retry: () => { $("#community").outerHTML = `<div class="row" id="community">${skCards(6)}</div>`; loadCommunity(); } })}</div>`; return; }
-  if (!data.length) { el.outerHTML = `<div id="community">${emptyState({ iconName: "star", title: "No community scores yet", body: "When people start rating, the best-loved albums show up here.", compact: true })}</div>`; return; }
-  el.innerHTML = data.map((s) => albumCard({ id: s.album_id, title: s.title, artist: s.artist, art: s.cover_url },
-    { score: s.avg_score, count: s.rating_count, meta: plural(s.rating_count, "rating") })).join("");
-}
-
-async function loadShelf() {
-  const el = $("#mine");
-  if (!sb) return;
-  if (!user) {
-    el.innerHTML = emptyState({ iconName: "disc", title: "Start your shelf",
-      body: "Sign in to score albums. Your rankings, notes and standout tracks live here.",
-      actions: button("Sign in", { variant: "primary", id: "shelfSignIn" }) });
-    $("#shelfSignIn").onclick = openAuth;
-    return;
-  }
-  try {
-    const rows = await myRatings();
-    if (!el.isConnected) return;
-    el.innerHTML = rows.length
-      ? `<div class="list">${rows.slice(0, 5).map((r, i) => listCard(r, i + 1)).join("")}</div>`
-      : emptyState({ iconName: "disc", title: "Nothing rated yet", body: "Pick any album from the charts above, give it a score, and it lands here.",
-          actions: button("Search albums", { id: "focusSearch", iconName: "search" }) });
-    $("#focusSearch")?.addEventListener("click", () => q.focus());
-  } catch { el.innerHTML = errorState({ title: "Couldn't load your shelf", retry: loadShelf }); }
+/* ---------- Search ---------- */
+function renderSearch(term) {
+  document.title = "Search · Rotation";
+  view().innerHTML = `<header class="page-head"><h1 class="t-page">Search</h1><p class="t-lead">Find any album or artist, then give it a score.</p></header>
+    ${searchForm({ mode: "page", value: term, cls: "search--hero" })}
+    <div id="sres" style="margin-top:var(--s-10)"></div>`;
+  pageSearch(term);
+  if (!term) $("[data-search]").focus();
 }
 
 /* ---------- Recommendations: Billboard charts matched to your taste ---------- */
@@ -533,10 +847,13 @@ async function loadRecs() {
   const el = $("#recs");
   let ratings = [];
   try { ratings = await myRatings("score, updated_at, album:albums(id,title,artist,genres)"); } catch {}
-  if (!ratings.length) {
-    $("#recWhy").textContent = "Popular this week. Rate a few albums and these tune to your taste.";
-    try { const c = await billboard("billboard-200"); if (el.isConnected) el.innerHTML = c.items.slice(0, 12).map((it) => albumCard({ ...it, move: null, why: `#${it.rank} on the Billboard 200` })).join(""); }
-    catch { if (el.isConnected) el.outerHTML = errorState({ title: "Recommendations didn't load" }); }
+  if (ratings.length < 3) {
+    const need = 3 - ratings.length;
+    $("#recWhy").textContent = "Tuned to the genres you score highest";
+    if (el.isConnected) el.outerHTML = `<div id="recs">${emptyState({ iconName: "star", compact: true,
+      title: ratings.length ? `Rate ${plural(need, "more album")} to unlock picks` : "Rate three albums to unlock picks",
+      body: "We match this week's charts to what you score highly.",
+      actions: button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) })}</div>`;
     return;
   }
   $("#recWhy").textContent = "Matching this week's charts to what you rate highly…";
@@ -553,14 +870,7 @@ async function loadRecs() {
     : emptyState({ title: "No new picks this week", body: "You've rated everything charting in your genres. Check back after Tuesday's update.", compact: true });
 }
 
-/* ---------- Genres ---------- */
-function renderGenres() {
-  document.title = "Genres · Rotation";
-  view().innerHTML = `<header class="page-head"><h1 class="t-page">Genres</h1><p class="t-lead">Billboard's weekly album charts, one per genre. Updated every Tuesday.</p></header>
-    <div class="genres">${GENRES.map(genreCard).join("")}</div>`;
-  fillGenreCards(view());
-}
-
+/* ---------- Genre chart ---------- */
 async function renderGenre(slug) {
   const g = GENRES.find((x) => x.slug === slug);
   if (!g) return renderNotFound();
@@ -609,7 +919,7 @@ async function renderProfile() {
     if (profileTab === "notes") list = list.filter((r) => r.thoughts);
     const body = !rows.length
       ? emptyState({ iconName: "disc", title: "Your shelf is empty", body: "Score your first album and your rankings, notes and standout tracks will collect here.",
-          actions: button("Browse the charts", { variant: "primary", href: "#/" }) + button("Search albums", { id: "profSearch", iconName: "search" }) })
+          actions: button("Browse the charts", { variant: "primary", href: "#/" }) + button("Search albums", { href: "#/search", iconName: "search" }) })
       : !list.length
         ? emptyState({ iconName: "note", title: "No notes yet", body: "Add thoughts when you score an album and they'll appear here.", compact: true })
         : profileView === "list"
@@ -630,7 +940,6 @@ async function renderProfile() {
       ${body}`;
     $$("[data-tab]").forEach((b) => b.onclick = () => { profileTab = b.dataset.tab; draw(); });
     $$("[data-view]").forEach((b) => b.onclick = () => { profileView = b.dataset.view; draw(); });
-    $("#profSearch")?.addEventListener("click", () => q.focus());
   };
   draw();
 }
@@ -696,8 +1005,7 @@ async function resolveFind(artist, title) {
     if (rg) return location.replace(`#/album/${rg.id}`);
   } catch {}
   view().innerHTML = emptyState({ iconName: "search", title: "Couldn't open this album yet", body: `We couldn't match “${title}” by ${artist} to an album page. Try searching for it.`,
-    actions: button("Search", { id: "findSearch", iconName: "search" }) });
-  $("#findSearch").onclick = () => { q.value = `${title} ${artist}`; q.focus(); search(q.value); };
+    actions: button("Search", { href: searchHref(`${title} ${artist}`), iconName: "search" }) });
 }
 
 /* ---------- Album page ---------- */
@@ -840,7 +1148,8 @@ function route() {
   const h = location.hash || "#/";
   window.scrollTo(0, 0);
   $("#nav").classList.remove("is-tucked");
-  const section = h.startsWith("#/me") ? "me" : h.startsWith("#/genre") ? "genres" : h === "#/" ? "home" : "";
+  const section = h.startsWith("#/me") ? "me" : /^#\/(genre|genres|explore|decade)\b/.test(h) ? "explore" : h.startsWith("#/lists") ? "lists"
+    : h.startsWith("#/search") ? "search" : h === "#/" || h === "#" ? "discover" : "";
   $$("[data-nav]").forEach((a) => (a.dataset.nav === section ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
   let m;
   if ((m = h.match(/^#\/album\/([0-9a-f-]{36})/i))) return renderAlbum(m[1]);
@@ -848,7 +1157,10 @@ function route() {
   if ((m = h.match(/^#\/find-artist\/(.+)$/))) return resolveArtist(decodeURIComponent(m[1]));
   if ((m = h.match(/^#\/find\/([^/]+)\/(.+)$/))) return resolveFind(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
   if ((m = h.match(/^#\/genre\/([a-z-]+)/))) return renderGenre(m[1]);
-  if (h.startsWith("#/genres")) return renderGenres();
+  if ((m = h.match(/^#\/decade\/(\d{4})$/))) return renderDecade(+m[1]);
+  if ((m = h.match(/^#\/lists(?:\/([a-z]+))?$/))) return renderLists(m[1]);
+  if ((m = h.match(/^#\/search(?:\/(.*))?$/))) return renderSearch(m[1] ? decodeURIComponent(m[1]) : "");
+  if (h.startsWith("#/explore") || h.startsWith("#/genres")) return renderExplore();
   if (h.startsWith("#/me")) return renderProfile();
   if (h === "#/" || h === "#") return renderHome();
   renderNotFound();
@@ -859,9 +1171,14 @@ window.addEventListener("hashchange", route);
 let lastY = 0;
 window.addEventListener("scroll", () => {
   const y = window.scrollY;
-  if (window.matchMedia("(max-width: 760px)").matches && results.hidden) $("#nav").classList.toggle("is-tucked", y > lastY && y > 120);
+  if (window.matchMedia("(max-width: 760px)").matches) $("#nav").classList.toggle("is-tucked", y > lastY && y > 120);
   lastY = y;
 }, { passive: true });
+
+// Bottom navigation for phones and small tablets (CSS shows it under 860px)
+$("#tabbar").innerHTML = [["discover", "#/", "Discover", "compass"], ["explore", "#/explore", "Explore", "grid"], ["lists", "#/lists", "Lists", "list"],
+  ["search", "#/search", "Search", "search"], ["me", "#/me", "Profile", "user"]]
+  .map(([key, href, label, ic]) => `<a href="${href}" data-nav="${key}">${icon(ic)}<span>${label}</span></a>`).join("");
 
 (async function start() {
   if (sb) {

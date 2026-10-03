@@ -17,20 +17,20 @@
   <div class="nav__inner">
     <a href="#/" class="wordmark" aria-label="Rotation home">Rotation</a>
     <nav class="nav__links" aria-label="Main">
-      <a href="#/" data-nav="home">Home</a>
-      <a href="#/genres" data-nav="genres">Genres</a>
-      <a href="#/me" data-nav="me">Profile</a>
+      <a href="#/" data-nav="discover">Discover</a>
+      <a href="#/explore" data-nav="explore">Explore</a>
+      <a href="#/lists" data-nav="lists">Lists</a>
+      <a href="#/search" data-nav="search">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search
+      </a>
     </nav>
-    <div class="search" role="search">
-      <svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input id="q" class="input input--search" type="search" placeholder="Search albums and artists" autocomplete="off" aria-label="Search albums and artists" aria-controls="results" aria-expanded="false">
-      <div id="results" class="menu menu--search" role="listbox" hidden></div>
-    </div>
     <div id="account" class="nav__account"></div>
   </div>
 </header>
 
 <main id="view" tabindex="-1"></main>
+
+<nav class="tabbar" id="tabbar" aria-label="Main"></nav>
 
 <dialog id="authDialog" class="dialog" aria-labelledby="authTitle">
   <form id="authForm" method="dialog" class="dialog__body">

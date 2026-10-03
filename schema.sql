@@ -46,3 +46,26 @@ grant select on public.album_stats to anon, authenticated;
 
 -- v2: genres on albums (for genre links and recommendations)
 alter table public.albums add column if not exists genres text[] not null default '{}';
+
+-- v3: discovery (homepage Trending and Recently Reviewed). Run this in the Supabase SQL editor.
+-- Like album_stats, these views expose aggregates and scores only. No user ids, no notes.
+create index if not exists ratings_created_at_idx on public.ratings (created_at desc);
+create index if not exists ratings_updated_at_idx on public.ratings (updated_at desc);
+
+create or replace view public.album_activity as
+select a.id as album_id, a.title, a.artist, a.cover_url, a.release_date,
+       count(r.id)::int as recent_count,
+       round(avg(r.score)::numeric, 1) as recent_avg
+from public.albums a
+join public.ratings r on r.album_id = a.id
+where r.created_at >= now() - interval '7 days'
+group by a.id;
+
+create or replace view public.recent_ratings as
+select r.id, r.album_id, a.title, a.artist, a.cover_url, r.score, r.updated_at as rated_at
+from public.ratings r
+join public.albums a on a.id = r.album_id
+order by r.updated_at desc
+limit 100;
+
+grant select on public.album_activity, public.recent_ratings to anon, authenticated;
