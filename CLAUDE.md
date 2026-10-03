@@ -23,6 +23,14 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - `MIN_RATINGS` (3) gates "Highest rated"; "Under the radar" is 8+ with fewer than that.
 - `schema.sql` v3 adds views `album_activity` (7-day counts) and `recent_ratings` (scores only, no notes or user ids).
   The app treats missing views as empty, so run v3 in the Supabase SQL editor to switch Trending and Recently Reviewed to live data.
+- Rating scale: whole scores 1-10 (not stars); this is the established convention (DB check, charts, recommendations all use it).
+  Tapping a score saves immediately (score only, so reviews are never clobbered); the review/standouts have their own Save.
+  Never put `updated_at` in client writes; triggers own timestamps. Duplicates are impossible (unique user_id+album_id upsert).
+- Listening status lives in `album_status` (listened / want / favorite). Rated implies listened, favorite implies listened,
+  listened and want are exclusive. Enforced by checks + triggers in the DB (schema v5), mirrored in `applyStatus`.
+- Ranking: `album_rankings.weighted_score` (Bayesian average, prior strength 5) only orders Highest rated / Top rated lists
+  (3+ ratings). The UI always shows the plain average and the count. Never display the weighted score.
+- Abuse guards (v5): 100 new ratings/hour/user, 300ms between edits of one rating, review length cap, album facts can't be overwritten.
 - Album page (`renderAlbum`): community rating + distribution (`album_score_counts`) are shown apart from "Your rating".
   Reviews are private by default; a writer opts in with "Share this review" and it appears via view `album_reviews`
   (author is a chosen display name, never the email). Save-to-library uses table `library` (own rows only), listed on the profile "Saved" tab.

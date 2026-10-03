@@ -163,6 +163,7 @@ const ICONS = {
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/>',
   compass: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
   bookmark: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
+  heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
   share: '<path d="M12 15V4M8 8l4-4 4 4M5 13v6h14v-6"/>',
 };
 const icon = (name, cls = "icon") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
@@ -495,12 +496,16 @@ function memo(key, fn) {
   if (!cache.has(key)) { const p = fn(); cache.set(key, p); p.catch(() => cache.delete(key)); }
   return cache.get(key);
 }
+// Ordered by a confidence-adjusted score (a Bayesian average) so one 10/10 can't outrank an album that many people rate 9.
+// Each row still carries the plain average (avg_score) and rating_count, which are what the UI displays.
 const communityStats = () => memo("m:stats", async () => {
   if (!sb) return [];
-  const { data, error } = await sb.from("album_stats").select("*").order("avg_score", { ascending: false }).order("rating_count", { ascending: false }).limit(200);
+  let { data, error } = await sb.from("album_rankings").select("*").order("weighted_score", { ascending: false }).order("rating_count", { ascending: false }).limit(200);
+  if (error) ({ data, error } = await sb.from("album_stats").select("*").order("avg_score", { ascending: false }).order("rating_count", { ascending: false }).limit(200));
   if (error) throw error;
   return data || [];
 });
+const RANKING_NOTE = `Albums need ${MIN_RATINGS}+ ratings. Order uses a confidence-adjusted score, so a few ratings count for less. The score shown is the plain average.`;
 // Views added in schema v3. If they haven't been created yet, treat them as empty.
 const optionalView = (name, build) => memo("m:" + name, async () => {
   if (!sb) return [];
@@ -583,14 +588,15 @@ async function loadNewReleases() {
 
 async function loadHighest() {
   const top = (await communityStats()).filter((s) => s.rating_count >= MIN_RATINGS).slice(0, 24);
-  if (top.length) return { sub: `Best-scoring albums with ${MIN_RATINGS}+ ratings`, cards: top.map((s, i) => statCard(s, { rank: i + 1 })) };
+  if (top.length) return { sub: RANKING_NOTE, cards: top.map((s, i) => statCard(s, { rank: i + 1 })) };
   const c = await billboard("billboard-200");
   return { sub: `Albums need ${MIN_RATINGS}+ ratings to rank here. Until then, the most popular albums right now.`,
     cards: c.items.slice(0, 14).map((it) => albumCard(it, { rank: it.rank })) };
 }
 
 async function loadRadar() {
-  const few = (await communityStats()).filter((s) => s.rating_count < MIN_RATINGS && s.avg_score >= 8).slice(0, 24);
+  const few = (await communityStats()).filter((s) => s.rating_count < MIN_RATINGS && s.avg_score >= 8)
+    .sort((a, b) => b.avg_score - a.avg_score || b.rating_count - a.rating_count).slice(0, 24);
   if (few.length) return { sub: `Scoring 8 or higher, with fewer than ${MIN_RATINGS} ratings so far`, cards: few.map((s) => statCard(s)) };
   const c = await billboard("billboard-200");
   return { sub: "No early community favorites yet. Deeper cuts from the Billboard 200 in the meantime.",
@@ -780,7 +786,7 @@ async function renderLists(tab) {
       const top = (await communityStats()).filter((s) => s.rating_count >= MIN_RATINGS).slice(0, 50);
       if (!el.isConnected) return;
       el.innerHTML = top.length
-        ? `<section class="section">${sectionHead("Top rated on Rotation", { sub: `Albums with ${MIN_RATINGS}+ ratings, by average score` })}
+        ? `<section class="section">${sectionHead("Top rated on Rotation", { sub: RANKING_NOTE })}
             <div class="grid">${top.map((s, i) => statCard(s, { rank: i + 1 })).join("")}</div></section>`
         : emptyState({ iconName: "star", title: "No album has enough ratings yet", body: `Albums need ${MIN_RATINGS} ratings to appear here. Score a few and help build the list.`,
             actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) });
@@ -914,11 +920,16 @@ async function renderProfile() {
   let rows;
   try { rows = await myRatings(); } catch { view().innerHTML = errorState({ title: "Couldn't load your profile", retry: renderProfile, compact: false }); return; }
 
-  let saved = [];
+  let statuses = [];
   try {
-    const { data } = await sb.from("library").select("created_at, album:albums(id,title,artist,cover_url)").order("created_at", { ascending: false });
-    saved = (data || []).filter((r) => r.album);
+    const { data } = await sb.from("album_status").select("listened, want, favorite, updated_at, album:albums(id,title,artist,cover_url)").order("updated_at", { ascending: false });
+    statuses = (data || []).filter((r) => r.album);
   } catch {}
+  const STATUS_TABS = {
+    favorite: { pick: (r) => r.favorite, meta: "Favorite", empty: ["Nothing favorited yet", "Tap Favorite on any album page to keep your all-time picks here."] },
+    want: { pick: (r) => r.want, meta: "Want to listen", empty: ["Nothing queued yet", "Tap Want to listen on any album page to line up your next listens."] },
+    listened: { pick: (r) => r.listened, meta: "Listened", empty: ["No listens logged yet", "Mark albums as Listened, or rate them, and they show up here."] },
+  };
 
   const avg = rows.length ? (rows.reduce((s, r) => s + r.score, 0) / rows.length).toFixed(1) : "–";
   const standouts = rows.reduce((s, r) => s + (r.standout_tracks?.length || 0), 0);
@@ -931,10 +942,12 @@ async function renderProfile() {
     let list = [...rows];
     if (profileTab === "recent") list.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
     if (profileTab === "notes") list = list.filter((r) => r.thoughts);
-    const body = profileTab === "saved"
-      ? (saved.length ? `<div class="grid">${saved.map((r) => albumCard({ id: r.album.id, title: r.album.title, artist: r.album.artist, art: r.album.cover_url },
-          { meta: `Saved ${fmtDate(String(r.created_at).slice(0, 10), "short")}` })).join("")}</div>`
-        : emptyState({ iconName: "bookmark", title: "Nothing saved yet", body: "Use Save to library on any album page to keep it here for later.", compact: true,
+    const st = STATUS_TABS[profileTab];
+    const stRows = st ? statuses.filter(st.pick) : [];
+    const body = st
+      ? (stRows.length ? `<div class="grid">${stRows.map((r) => albumCard({ id: r.album.id, title: r.album.title, artist: r.album.artist, art: r.album.cover_url },
+          { meta: `${st.meta} ${fmtDate(String(r.updated_at).slice(0, 10), "short")}` })).join("")}</div>`
+        : emptyState({ iconName: profileTab === "favorite" ? "heart" : "bookmark", title: st.empty[0], body: st.empty[1], compact: true,
             actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) }))
       : !rows.length
       ? emptyState({ iconName: "disc", title: "Your shelf is empty", body: "Score your first album and your rankings, notes and standout tracks will collect here.",
@@ -950,7 +963,7 @@ async function renderProfile() {
         { label: "Albums rated", value: rows.length }, { label: "Average score", value: avg },
         { label: "Standout tracks", value: standouts }, { label: "Top genre", value: topGenre }] })}
       <div class="toolbar">
-        ${tabs([["ranked", "Ranked"], ["recent", "Recently rated"], ["notes", "With notes"], ["saved", "Saved"]], profileTab, "Sort your shelf")}
+        ${tabs([["ranked", "Ranked"], ["recent", "Recently rated"], ["notes", "With notes"], ["favorite", "Favorites"], ["want", "Want to listen"], ["listened", "Listened"]], profileTab, "Sort your shelf")}
         <div class="segmented" role="group" aria-label="Layout">
           <button type="button" data-view="list" aria-pressed="${profileView === "list"}" aria-label="List view">${icon("list")}</button>
           <button type="button" data-view="grid" aria-pressed="${profileView === "grid"}" aria-label="Grid view">${icon("grid")}</button>
@@ -1046,12 +1059,28 @@ function distribution(counts, mineScore) {
     </div>`).join("")}</div>`;
 }
 
-// Writes the album row that ratings and the library point at. Falls back to the original columns if schema v4 isn't applied yet.
+// Writes the album row that ratings and listening statuses point at. Falls back to the original columns if schema v4 isn't applied yet.
 async function persistAlbum(a) {
   const base = { id: a.id, title: a.title, artist: a.artist, release_date: a.release_date, cover_url: a.cover_url, tracks: a.tracks, genres: a.genres || [] };
   let { error } = await sb.from("albums").upsert({ ...base, artist_id: a.artist_id || null, album_type: a.album_type || null });
   if (error && /column/i.test(error.message)) ({ error } = await sb.from("albums").upsert(base));
   return error;
+}
+
+const apiError = (e) => /row-level security|jwt|not authenticated/i.test(e?.message || "") ? "Please sign in again." : (e?.message || "Something went wrong.");
+
+// Plain-language read of the distribution, computed only from the numbers shown. Needs enough ratings to mean anything.
+function spreadNote(counts) {
+  const n = counts.reduce((a, b) => a + b, 0);
+  if (n < 5) return "";
+  const mean = counts.reduce((s, c, i) => s + c * (i + 1), 0) / n;
+  const sd = Math.sqrt(counts.reduce((s, c, i) => s + c * (i + 1 - mean) ** 2, 0) / n);
+  return sd >= 2.6 ? "Divisive: scores are spread across the scale." : sd <= 1.4 ? "Broad agreement: most scores sit close together." : "";
+}
+function confidenceNote(n) {
+  if (n < MIN_RATINGS) return `Based on ${plural(n, "rating")}. Too few to rank or compare with other albums.`;
+  if (n < 10) return "Early read. The average can move a lot as more people rate.";
+  return "";
 }
 
 async function renderAlbum(id) {
@@ -1068,26 +1097,54 @@ async function renderAlbum(id) {
   const yr = year(album.release_date);
   document.title = `${album.title}${yr ? ` (${yr})` : ""} by ${album.artist} · Rotation`;
 
-  // Community numbers, your rating, library state and shared reviews. The newer views may not exist yet, so each part degrades on its own.
-  let mine = null, stats = null, counts = null, saved = false, reviews = [];
+  // One state object drives every repaint, so rating and status changes update in place and never wipe an unsaved review.
+  // Scores are whole numbers from 1 to 10, the scale Rotation already uses everywhere.
+  const S = { mine: null, score: 0, stats: null, counts: null, status: { listened: false, want: false, favorite: false },
+    standouts: new Set(), busy: false, statusBusy: false, albumSaved: false };
+  let reviews = [];
   if (sb) {
-    const [s, r, c, l, rv] = await Promise.all([
+    const [s, r, c, st, rv] = await Promise.all([
       sb.from("album_stats").select("avg_score, rating_count").eq("album_id", id).maybeSingle(),
       user ? sb.from("ratings").select("*").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
       sb.from("album_score_counts").select("score, n").eq("album_id", id),
-      user ? sb.from("library").select("album_id").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
+      user ? sb.from("album_status").select("listened, want, favorite").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
       sb.from("album_reviews").select("*").eq("album_id", id).order("updated_at", { ascending: false }).limit(20),
     ]);
-    stats = s.data; mine = r.data; saved = !!l.data;
-    if (c.data?.length) { counts = Array(10).fill(0); c.data.forEach((x) => { if (x.score >= 1 && x.score <= 10) counts[x.score - 1] = x.n; }); }
+    S.stats = s.data; S.mine = r.data; S.score = r.data?.score || 0; S.standouts = new Set(r.data?.standout_tracks || []);
+    if (st.data) S.status = st.data;
+    if (c.data?.length) { S.counts = Array(10).fill(0); c.data.forEach((x) => { if (x.score >= 1 && x.score <= 10) S.counts[x.score - 1] = x.n; }); }
     reviews = (rv.data || []).filter((x) => !x.is_mine);
   }
-  const state = { score: mine?.score || 0, standouts: new Set(mine?.standout_tracks || []) };
   const total = album.tracks?.reduce((s, t) => s + (t.length || 0), 0);
   const artistHref = (aid) => aid ? `#/artist/${aid}` : `#/find-artist/${encodeURIComponent(album.artist)}`;
   const eyebrow = () => [album.album_type, yr].filter(Boolean).join(" · ");
   const facts = [album.release_date ? fmtDate(album.release_date) : "", album.tracks?.length ? plural(album.tracks.length, "track") : "", total ? `${Math.round(total / 60000)} min` : ""].filter(Boolean);
-  const shared = !!mine?.is_public;
+  const shared = !!S.mine?.is_public;
+  const ratedOn = () => S.mine ? `Rated ${fmtDate(String(S.mine.updated_at || S.mine.created_at).slice(0, 10), "short")}` : "Not rated yet";
+
+  const communityHTML = () => {
+    const n = S.stats?.rating_count || 0;
+    if (!S.stats) return `<p class="text-2" style="font-size:var(--fs-sm)">No ratings yet. Be the first to score it.</p>`;
+    const notes = [confidenceNote(n), S.counts ? spreadNote(S.counts) : ""].filter(Boolean);
+    return `<div class="community">
+        <div class="rating-stat"><span class="score score--lg">${S.stats.avg_score}<small> /10</small></span><span class="t-meta">${plural(n, "rating")}</span></div>
+        ${S.counts ? distribution(S.counts, S.score) : ""}</div>
+      ${notes.length ? `<p class="t-meta">${notes.map(esc).join(" ")}</p>` : ""}`;
+  };
+  const statusHTML = () => {
+    const st = S.status, locked = !!S.mine || st.favorite;
+    const chip = (key, label, ic, on, extra = "") => `<button type="button" class="btn" data-st="${key}" aria-pressed="${on}"${extra}>${icon(ic)}<span>${label}</span></button>`;
+    const lock = locked ? ' aria-disabled="true"' : "";
+    return `<div class="status" role="group" aria-label="Listening status">
+        ${chip("listened", "Listened", "check", st.listened, lock)}
+        ${chip("want", "Want to listen", "bookmark", st.want, lock)}
+        ${chip("rated", S.mine ? `Rated ${S.score}/10` : "Rated", "star", !!S.mine)}
+        ${chip("favorite", "Favorite", "heart", st.favorite)}
+      </div>
+      <p class="field__hint" role="status">${S.mine ? "Rated albums count as listened." : st.favorite ? "Favorites count as listened." : "Rating an album marks it as listened."}</p>`;
+  };
+  const pickerHTML = () => `<div class="picker" id="picker" role="group" aria-labelledby="pickLabel">${Array.from({ length: 10 }, (_, i) =>
+    `<button type="button" data-s="${i + 1}" aria-pressed="${S.score === i + 1}" aria-label="Rate ${i + 1} out of 10">${i + 1}</button>`).join("")}</div>`;
 
   view().innerHTML = `
     <article class="album">
@@ -1103,29 +1160,24 @@ async function renderAlbum(id) {
         </header>
 
         <div class="album__actions">
-          ${button(mine ? "Edit your rating" : "Rate this album", { variant: "primary", id: "jumpRate", iconName: "star" })}
-          <button type="button" class="btn btn--secondary" id="saveLib" aria-pressed="${saved}">${icon(saved ? "check" : "bookmark")}<span>${saved ? "Saved to library" : "Save to library"}</span></button>
+          ${button(S.mine ? "Edit your rating" : "Rate this album", { variant: "primary", id: "jumpRate", iconName: "star" })}
           ${button("Share", { id: "shareBtn", iconName: "share" })}
         </div>
+        <div id="statusWrap" class="status-wrap">${statusHTML()}</div>
 
         <section class="panel" aria-labelledby="comm-h">
-          <div class="panel__head"><h2 class="t-section" id="comm-h">Community rating</h2></div>
-          ${stats ? `<div class="community">
-              <div class="rating-stat"><span class="score score--lg">${stats.avg_score}<small> /10</small></span><span class="t-meta">${plural(stats.rating_count, "rating")}</span></div>
-              ${counts ? distribution(counts, state.score) : ""}</div>`
-            : `<p class="text-2" style="font-size:var(--fs-sm)">No ratings yet. Be the first to score it.</p>`}
+          <div class="panel__head"><h2 class="t-section" id="comm-h">Community rating</h2><span class="t-meta">Plain average</span></div>
+          <div id="communityBody">${communityHTML()}</div>
         </section>
 
         <section class="panel" id="yourRating" aria-labelledby="you-h">
-          <div class="panel__head"><h2 class="t-section" id="you-h">Your rating</h2>
-            <span class="t-meta">${mine ? `Rated ${fmtDate(String(mine.updated_at || mine.created_at).slice(0, 10), "short")}` : "Not rated yet"}</span></div>
+          <div class="panel__head"><h2 class="t-section" id="you-h">Your rating</h2><span class="t-meta" id="ratedMeta">${ratedOn()}</span></div>
           <div class="rating-panel rating-panel--bare">
-            <div id="rec">${recordSvg(state.score)}</div>
+            <div id="rec">${recordSvg(S.score)}</div>
             <div class="rating-panel__side">
-              <div class="rating-stat"><span class="t-meta">Your score</span><span class="score score--lg" id="myScore">${state.score || "–"}<small> /10</small></span></div>
-              <div><p class="t-label" id="pickLabel" style="margin-bottom:var(--s-2)">${mine ? "Change your score" : "Pick a score"}</p>
-                <div class="picker" id="picker" role="group" aria-labelledby="pickLabel">${Array.from({ length: 10 }, (_, i) =>
-                  `<button type="button" data-s="${i + 1}" aria-pressed="${state.score === i + 1}">${i + 1}</button>`).join("")}</div></div>
+              <div class="rating-stat"><span class="t-meta">Your score</span><span class="score score--lg" id="myScore">${S.score || "–"}<small> /10</small></span></div>
+              <div><p class="t-label" id="pickLabel" style="margin-bottom:var(--s-2)">${S.mine ? "Change your score" : "Tap a score to rate"}</p>${pickerHTML()}
+                <p class="field__hint" id="rateStatus" role="status" aria-live="polite" style="margin-top:var(--s-2)">${user ? "Saves as soon as you tap. A review is optional." : "Sign in to save your rating."}</p></div>
             </div>
           </div>
         </section>
@@ -1133,28 +1185,28 @@ async function renderAlbum(id) {
         <section class="block">
           <div class="block__head"><h2 class="t-section">Tracklist</h2>${album.tracks?.length ? `<span class="t-meta">Star your standouts</span>` : ""}</div>
           ${album.tracks?.length ? `<ol class="tracks" id="tracks">${album.tracks.map((t) => `
-            <li class="track${state.standouts.has(t.title) ? " is-standout" : ""}">
+            <li class="track${S.standouts.has(t.title) ? " is-standout" : ""}">
               <span class="track__pos">${esc(t.pos)}</span><span class="track__title">${esc(t.title)}</span>
               <span class="track__len">${fmtLen(t.length)}</span>
-              <button type="button" class="icon-btn" data-t="${esc(t.title)}" aria-pressed="${state.standouts.has(t.title)}" aria-label="Standout: ${esc(t.title)}">${icon("star")}</button>
+              <button type="button" class="icon-btn" data-t="${esc(t.title)}" aria-pressed="${S.standouts.has(t.title)}" aria-label="Standout: ${esc(t.title)}">${icon("star")}</button>
             </li>`).join("")}</ol>`
             : emptyState({ iconName: "note", title: "No tracklist listed", body: "MusicBrainz doesn't have tracks for this album yet. You can still score it.", plain: true })}
         </section>
 
         <section class="block">
           <label class="field"><span class="t-section">Your review <span class="t-meta">Optional</span></span>
-            <textarea id="thoughts" class="textarea" maxlength="2000" placeholder="What stuck with you? Favorite moments, how it holds up, where it fits.">${esc(mine?.thoughts || "")}</textarea>
+            <textarea id="thoughts" class="textarea" maxlength="2000" placeholder="What stuck with you? Favorite moments, how it holds up, where it fits.">${esc(S.mine?.thoughts || "")}</textarea>
           </label>
           <label class="check"><input type="checkbox" id="isPublic"${shared ? " checked" : ""}><span>Share this review with the community</span></label>
           <label class="field" id="nameField"${shared ? "" : " hidden"}><span class="field__label">Show as</span>
-            <input id="displayNameInput" class="input" maxlength="40" placeholder="Anonymous listener" value="${esc(mine?.display_name || "")}" autocomplete="off">
+            <input id="displayNameInput" class="input" maxlength="40" placeholder="Anonymous listener" value="${esc(S.mine?.display_name || "")}" autocomplete="off">
           </label>
           <span class="field__hint" id="reviewHint"></span>
         </section>
 
         <div class="save-bar">
-          ${button(mine ? "Update rating" : "Save rating", { variant: "primary", id: "save" })}
-          ${mine ? button("Remove rating", { variant: "ghost", id: "remove", attrs: 'data-danger="1"' }) : ""}
+          <button type="button" class="btn btn--primary" id="save"><span>${S.mine ? "Save review and standouts" : "Save rating and review"}</span></button>
+          <button type="button" class="btn btn--ghost" id="remove" data-danger="1"${S.mine ? "" : " hidden"}><span>Remove rating</span></button>
         </div>
 
         <section class="block" id="reviews" aria-labelledby="rev-h">
@@ -1172,81 +1224,168 @@ async function renderAlbum(id) {
     if (slot?.isConnected) slot.outerHTML = artwork(url, `${album.title} by ${album.artist}`);
   }));
 
+  /* ----- painting ----- */
+  const announce = (msg) => { const el = $("#rateStatus"); if (el) el.textContent = msg; };
+  const paintRating = () => {
+    $("#rec").innerHTML = recordSvg(S.score);
+    $("#myScore").innerHTML = `${S.score || "–"}<small> /10</small>`;
+    $$("#picker button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.s === S.score)));
+    $("#picker").setAttribute("aria-busy", String(S.busy));
+    $("#pickLabel").textContent = S.mine ? "Change your score" : "Tap a score to rate";
+    $("#ratedMeta").textContent = ratedOn();
+    $("#jumpRate span").textContent = S.mine ? "Edit your rating" : "Rate this album";
+    $("#save span").textContent = S.mine ? "Save review and standouts" : "Save rating and review";
+    $("#remove").hidden = !S.mine;
+  };
+  const paintStatus = () => {
+    const focused = document.activeElement?.dataset?.st;
+    $("#statusWrap").innerHTML = statusHTML();
+    if (focused) $(`#statusWrap [data-st="${focused}"]`)?.focus();
+    $$("#statusWrap .btn").forEach((b) => b.setAttribute("aria-busy", String(S.statusBusy)));
+  };
+  const paintCommunity = () => { $("#communityBody").innerHTML = communityHTML(); };
+  const refreshCommunity = async () => {
+    const [s, c] = await Promise.all([
+      sb.from("album_stats").select("avg_score, rating_count").eq("album_id", id).maybeSingle(),
+      sb.from("album_score_counts").select("score, n").eq("album_id", id),
+    ]);
+    if (!$("#communityBody")) return;
+    S.stats = s.data;
+    S.counts = c.data?.length ? Array.from({ length: 10 }, (_, i) => c.data.find((x) => x.score === i + 1)?.n || 0) : null;
+    paintCommunity();
+  };
+  const paintAll = () => { paintRating(); paintStatus(); paintCommunity(); };
+
+  /* ----- saving ----- */
+  const ensureAlbum = async () => {
+    if (S.albumSaved) return null;
+    const err = await persistAlbum(album);
+    if (!err) S.albumSaved = true;
+    return err;
+  };
+  const needSignIn = () => {
+    if (!sb) { toast("Ratings are offline right now", "error"); return true; }
+    if (!user) { openAuth(); return true; }
+    return false;
+  };
+  // Tapping a score saves it right away. Only the score is sent, so an existing review is never touched.
+  async function submitScore(n) {
+    if (needSignIn() || S.busy || n === S.score) return;
+    const prev = S.score;
+    S.score = n; S.busy = true; paintRating(); announce("Saving…");
+    let error = await ensureAlbum();
+    let data = null;
+    if (!error) ({ data, error } = await sb.from("ratings").upsert({ user_id: user.id, album_id: album.id, score: n }, { onConflict: "user_id,album_id" }).select("*").single());
+    S.busy = false;
+    if (error) { S.score = prev; paintRating(); announce("Not saved"); return toast(`Couldn't save your rating: ${apiError(error)}`, "error"); }
+    S.mine = data; S.status = { ...S.status, listened: true, want: false };
+    paintAll(); announce(`Rated ${n} out of 10`); toast(`Rated ${n}/10`);
+    refreshCommunity();
+  }
+  // Listening status. Listened, Want to listen and Favorite never contradict: the database enforces the same rules.
+  async function applyStatus(key) {
+    if (key === "rated") { $("#jumpRate").click(); return; }
+    if (needSignIn() || S.statusBusy) return;
+    const st = { ...S.status }, locked = !!S.mine || st.favorite;
+    if ((key === "listened" || key === "want") && locked) return toast(S.mine ? "Rated albums count as listened." : "Favorites count as listened.", "info");
+    if (key === "favorite") { st.favorite = !st.favorite; if (st.favorite) st.listened = true; }
+    else if (key === "listened") st.listened = !st.listened;
+    else st.want = !st.want;
+    if (st.listened) st.want = false;
+    if (key === "want" && st.want) st.listened = false;
+    S.statusBusy = true; paintStatus();
+    let error = await ensureAlbum();
+    let data = null;
+    if (!error) ({ data, error } = await sb.from("album_status").upsert({ album_id: album.id, ...st }, { onConflict: "user_id,album_id" }).select("listened, want, favorite").single());
+    S.statusBusy = false;
+    if (error) { paintStatus(); return toast(`Couldn't update: ${apiError(error)}`, "error"); }
+    S.status = data; paintStatus();
+    toast(key === "favorite" ? (data.favorite ? "Added to favorites" : "Removed from favorites") : data.want ? "Added to Want to listen" : data.listened ? "Marked as listened" : "Status cleared", data.favorite || data.want || data.listened ? "success" : "info");
+  }
+
+  /* ----- events ----- */
   const paintHint = () => {
     $("#nameField").hidden = !$("#isPublic").checked;
     $("#reviewHint").textContent = $("#isPublic").checked
       ? "Your review and score will show on this page under the name above. Your email is never shown."
       : "Only you can see your review. Your score still counts toward the community average.";
   };
-  // On phones the Save bar floats above the tab bar, but only once there is something to save
+  // On phones the Save bar floats above the tab bar, but only once there is a review or standout change to save
   const markDirty = () => $(".save-bar")?.classList.add("is-dirty");
   $("#isPublic").onchange = () => { paintHint(); markDirty(); };
   $("#thoughts").addEventListener("input", markDirty);
   $("#displayNameInput").addEventListener("input", markDirty);
-  $("#picker").addEventListener("click", markDirty);
   $("#tracks")?.addEventListener("click", markDirty);
   paintHint();
 
-  $("#jumpRate").onclick = () => { $("#yourRating").scrollIntoView({ block: "start" }); $("#picker button").focus({ preventScroll: true }); };
+  $("#jumpRate").onclick = () => {
+    $("#yourRating").scrollIntoView({ block: "start" });
+    ($("#picker button[aria-pressed='true']") || $("#picker button")).focus({ preventScroll: true });
+  };
   $("#shareBtn").onclick = async () => {
     const data = { title: `${album.title} by ${album.artist}`, text: `${album.title} by ${album.artist} on Rotation`, url: location.href };
     if (navigator.share) { try { await navigator.share(data); } catch {} return; }
     try { await navigator.clipboard.writeText(location.href); toast("Link copied"); } catch { toast("Copy the link from your address bar", "info"); }
   };
-  $("#saveLib").onclick = async () => {
-    if (!sb) return toast("Your library is offline right now", "error");
-    if (!user) return openAuth();
-    const btn = $("#saveLib"); btn.setAttribute("aria-busy", "true");
-    let error = await persistAlbum(album);
-    if (!error) ({ error } = saved
-      ? await sb.from("library").delete().eq("album_id", album.id).eq("user_id", user.id)
-      : await sb.from("library").insert({ album_id: album.id }));
-    btn.removeAttribute("aria-busy");
-    if (error) return toast(`Couldn't update your library: ${error.message}`, "error");
-    saved = !saved;
-    btn.setAttribute("aria-pressed", String(saved));
-    btn.innerHTML = `${icon(saved ? "check" : "bookmark")}<span>${saved ? "Saved to library" : "Save to library"}</span>`;
-    toast(saved ? "Saved to your library" : "Removed from your library", saved ? "success" : "info");
-  };
-  $("#picker").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b) return;
-    state.score = +b.dataset.s;
-    $$("#picker button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-    $("#rec").innerHTML = recordSvg(state.score);
-    $("#myScore").innerHTML = `${state.score}<small> /10</small>`;
+  $("#statusWrap").addEventListener("click", (e) => { const b = e.target.closest("[data-st]"); if (b) applyStatus(b.dataset.st); });
+
+  const picker = $("#picker");
+  picker.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) submitScore(+b.dataset.s); });
+  // Hover and focus preview the score on the record without saving it
+  const preview = (e) => { const b = e.target.closest?.("button"); if (b && !S.busy) $("#rec").innerHTML = recordSvg(+b.dataset.s); };
+  const unpreview = () => { if (!picker.contains(document.activeElement) && !picker.matches(":hover")) $("#rec").innerHTML = recordSvg(S.score); };
+  picker.addEventListener("mouseover", preview);
+  picker.addEventListener("focusin", preview);
+  picker.addEventListener("mouseleave", unpreview);
+  picker.addEventListener("focusout", () => setTimeout(unpreview, 0));
+  picker.addEventListener("keydown", (e) => {
+    const btns = $$("button", picker), i = btns.indexOf(document.activeElement);
+    const to = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: btns.length - 1 }[e.key];
+    if (to == null || i < 0) return;
+    e.preventDefault();
+    btns[Math.min(btns.length - 1, Math.max(0, to))].focus();
   });
   $("#tracks")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-t]"); if (!b) return;
-    const t = b.dataset.t, on = !state.standouts.has(t);
-    on ? state.standouts.add(t) : state.standouts.delete(t);
+    const t = b.dataset.t, on = !S.standouts.has(t);
+    on ? S.standouts.add(t) : S.standouts.delete(t);
     b.setAttribute("aria-pressed", String(on));
     b.closest(".track").classList.toggle("is-standout", on);
   });
+
   $("#save").onclick = async () => {
-    if (!sb) return toast("Ratings are offline right now", "error");
-    if (!user) return openAuth();
-    if (!state.score) return toast("Pick a score from 1 to 10 first", "info");
+    if (needSignIn()) return;
+    if (!S.score) return toast("Tap a score from 1 to 10 first", "info");
     const btn = $("#save"); btn.setAttribute("aria-busy", "true");
-    const aErr = await persistAlbum(album);
     const body = $("#thoughts").value.trim() || null;
     const pub = !!body && $("#isPublic").checked, name = $("#displayNameInput").value.trim();
-    const row = { user_id: user.id, album_id: album.id, score: state.score, standout_tracks: [...state.standouts], thoughts: body, updated_at: new Date().toISOString() };
-    // Only send the sharing columns when they matter, so saving still works before schema v4 is applied
-    if (pub || mine?.is_public) row.is_public = pub;
-    if (pub || name || mine?.display_name) row.display_name = name || null;
-    const { error } = aErr ? { error: aErr } : await sb.from("ratings").upsert(row, { onConflict: "user_id,album_id" });
+    const row = { user_id: user.id, album_id: album.id, score: S.score, standout_tracks: [...S.standouts], thoughts: body };
+    // Only send the sharing columns when they matter, so saving also works on databases without schema v4
+    if (pub || S.mine?.is_public) row.is_public = pub;
+    if (pub || name || S.mine?.display_name) row.display_name = name || null;
+    let error = await ensureAlbum();
+    let data = null;
+    if (!error) ({ data, error } = await sb.from("ratings").upsert(row, { onConflict: "user_id,album_id" }).select("*").single());
     btn.removeAttribute("aria-busy");
-    if (error) return toast(`Couldn't save: ${error.message}`, "error");
-    toast(mine ? "Rating updated" : "Rating saved");
-    renderAlbum(id);
+    if (error) return toast(`Couldn't save: ${apiError(error)}`, "error");
+    const first = !S.mine;
+    S.mine = data; S.status = { ...S.status, listened: true, want: false };
+    $(".save-bar").classList.remove("is-dirty");
+    paintAll(); toast(first ? "Rating saved" : "Saved");
+    refreshCommunity();
   };
-  $("#remove")?.addEventListener("click", async () => {
-    if (!confirm("Remove your rating for this album?")) return;
-    const { error } = await sb.from("ratings").delete().eq("id", mine.id);
-    if (error) return toast(`Couldn't remove: ${error.message}`, "error");
-    toast("Rating removed", "info");
-    renderAlbum(id);
-  });
+  $("#remove").onclick = async () => {
+    if (!S.mine || !confirm("Remove your rating for this album? Your review and standout stars for it will be deleted too.")) return;
+    const btn = $("#remove"); btn.setAttribute("aria-busy", "true");
+    const { error } = await sb.from("ratings").delete().eq("id", S.mine.id);
+    btn.removeAttribute("aria-busy");
+    if (error) return toast(`Couldn't remove: ${apiError(error)}`, "error");
+    S.mine = null; S.score = 0; S.standouts = new Set();
+    $("#thoughts").value = ""; $("#isPublic").checked = false; $("#displayNameInput").value = "";
+    $$("#tracks .track").forEach((li) => { li.classList.remove("is-standout"); $(".icon-btn", li).setAttribute("aria-pressed", "false"); });
+    paintHint(); paintAll(); announce("Rating removed"); toast("Rating removed", "info");
+    refreshCommunity();
+  };
 
   loadAlbumMore(album, artistHref);
 }

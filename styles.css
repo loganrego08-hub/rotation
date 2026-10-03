@@ -614,3 +614,11 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 .check { display: flex; align-items: flex-start; gap: var(--s-3); font-size: var(--fs-sm); color: var(--text-2); cursor: pointer; }
 .check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
 .reviews { display: grid; gap: var(--s-4); }
+/* Listening status and rating interaction */
+.btn[aria-pressed="true"] { background: var(--accent-soft); }
+.btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+.status-wrap { display: grid; gap: var(--s-2); margin-bottom: var(--s-8); }
+.status { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.status .btn { height: 36px; padding: 0 var(--s-3); }
+.picker[aria-busy="true"] { opacity: 0.6; cursor: progress; }
+.picker button { touch-action: manipulation; }
