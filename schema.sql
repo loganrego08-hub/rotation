@@ -43,3 +43,6 @@ join public.ratings r on r.album_id = a.id
 group by a.id;
 
 grant select on public.album_stats to anon, authenticated;
+
+-- v2: genres on albums (for genre links and recommendations)
+alter table public.albums add column if not exists genres text[] not null default '{}';
