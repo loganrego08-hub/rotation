@@ -96,7 +96,19 @@ async function mbGenreChart(g) {
   } catch {}
   return items.map((x, i) => ({ ...x, rank: i + 1 }));
 }
+let chartWeek = null;
+function movement(x) {
+  if (x.lastWeek == null) return x.weeks > 1 ? "Back on the chart" : "New this week";
+  if (x.lastWeek > x.rank) return `Up ${x.lastWeek - x.rank}`;
+  if (x.lastWeek < x.rank) return `Down ${x.rank - x.lastWeek}`;
+  return "Holding steady";
+}
 async function topChart() {
+  // Billboard 200 via our own cached endpoint (official ranks, so no renumbering)
+  try {
+    const j = await getJSON("/api/billboard");
+    if (j.items?.length) { chartWeek = j.week; return j.items.filter(keep).map((x) => ({ ...x, why: movement(x) })); }
+  } catch {}
   try {
     const j = await getJSON(APPLE_TOP);
     return j.feed.results.map((x) => ({ title: x.name, artist: x.artistName, art: bigArt(x.artworkUrl100), genre: (x.genres || []).map((g) => g.name).join(", ") }))
@@ -220,7 +232,7 @@ const skeleton = (n, cls = "card") => Array.from({ length: n }, () => `<div clas
 function card(it, { ranked = false, badge } = {}) {
   return `<a class="card${ranked ? " ranked" : ""}" href="${itemHref(it)}">
     ${ranked ? `<span class="rank" aria-hidden="true">${it.rank}</span>` : ""}
-    <div class="cover">${img(it.art, `${it.title} cover`)}${badge != null ? `<span class="badge">${badge}</span>` : ""}</div>
+    <div class="cover">${img((it.art || "").replace("/front-500", "/front-250"), `${it.title} cover`)}${badge != null ? `<span class="badge">${badge}</span>` : ""}</div>
     <h3>${ranked ? `<span class="sr">#${it.rank} </span>` : ""}${esc(it.title)}</h3><p>${esc(it.sub || it.artist)}</p>${it.why ? `<p class="why">${esc(it.why)}</p>` : ""}</a>`;
 }
 const genreTile = (g) => `<a class="genre" href="#/genre/${g.slug}" style="--g:${g.color}"><span>${esc(g.name)}</span></a>`;
@@ -236,7 +248,7 @@ async function renderHome() {
     </section>
 
     <section class="shelf">
-      <div class="shelf-head"><h2>On the charts</h2><p>The most played albums in the US right now</p></div>
+      <div class="shelf-head"><h2>On the charts</h2><p id="chartsSub">The top albums in the US right now</p></div>
       <div class="row" id="charts">${skeleton(8)}</div>
     </section>
 
@@ -266,6 +278,7 @@ async function loadCharts() {
   const el = $("#charts");
   try {
     const items = (await topChart()).slice(0, 24);
+    if (chartWeek && $("#chartsSub")) $("#chartsSub").textContent = `Billboard 200 for the week of ${fmtDate(chartWeek)}`;
     el.innerHTML = items.map((it) => card(it, { ranked: true })).join("");
   } catch { failNote(el, "Charts couldn't load right now. Refresh to try again."); }
 }
@@ -319,8 +332,14 @@ async function mbSlow(url) {
   }
   throw new Error("MusicBrainz is busy");
 }
-const tagNames = (x) => [...(x.genres || []), ...(x.tags || [])]
-  .filter((t) => t.count > 0).sort((a, b) => b.count - a.count).map((t) => t.name.toLowerCase());
+// Curated MusicBrainz genres first; free-form tags only as backup, minus chart/date/junk tags
+const JUNK_TAG = /\d|woche|chart|favou?rite|seen live|owned|wishlist|album|best of|^.{1,2}$/i;
+const tagNames = (x) => {
+  const rank = (list) => (list || []).filter((t) => t.count > 0).sort((a, b) => b.count - a.count).map((t) => t.name.toLowerCase());
+  const g = rank(x.genres);
+  const t = rank(x.tags).filter((n) => !JUNK_TAG.test(n) && !g.includes(n));
+  return g.length >= 2 ? g : g.concat(t);
+};
 const isStudioAlbum = (rg) => (rg["primary-type"] || "Album") === "Album" && !(rg["secondary-types"] || []).length;
 
 async function buildRecs(ratings) {
@@ -411,10 +430,10 @@ async function loadRecs() {
   $("#recWhy").textContent = "Tuning picks to what you've rated highly…";
   const sig = user.id + ":" + ratings.map((r) => r.album?.id + r.score).join(",");
   let recs;
-  try { recs = JSON.parse(sessionStorage.getItem("recs2:" + sig) || "null"); } catch {}
+  try { recs = JSON.parse(sessionStorage.getItem("recs3:" + sig) || "null"); } catch {}
   if (!recs) {
     try { recs = await buildRecs(ratings); } catch { recs = { items: [] }; }
-    try { sessionStorage.setItem("recs2:" + sig, JSON.stringify(recs)); } catch {}
+    try { sessionStorage.setItem("recs3:" + sig, JSON.stringify(recs)); } catch {}
   }
   if (!$("#recs")) return; // navigated away
   const bits = [];
@@ -604,6 +623,16 @@ function route() {
   renderHome();
 }
 window.addEventListener("hashchange", route);
+
+/* On phones, tuck the header away while scrolling down and bring it back on scroll up */
+let lastY = 0;
+window.addEventListener("scroll", () => {
+  const y = window.scrollY, bar = $(".bar");
+  if (!window.matchMedia("(max-width: 760px)").matches) return bar.classList.remove("tucked");
+  if (!$("#results").hidden) return;
+  bar.classList.toggle("tucked", y > lastY && y > 120);
+  lastY = y;
+}, { passive: true });
 
 (async function start() {
   if (sb) {
