@@ -23,6 +23,11 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - `MIN_RATINGS` (3) gates "Highest rated"; "Under the radar" is 8+ with fewer than that.
 - `schema.sql` v3 adds views `album_activity` (7-day counts) and `recent_ratings` (scores only, no notes or user ids).
   The app treats missing views as empty, so run v3 in the Supabase SQL editor to switch Trending and Recently Reviewed to live data.
+- Album page (`renderAlbum`): community rating + distribution (`album_score_counts`) are shown apart from "Your rating".
+  Reviews are private by default; a writer opts in with "Share this review" and it appears via view `album_reviews`
+  (author is a chosen display name, never the email). Save-to-library uses table `library` (own rows only), listed on the profile "Saved" tab.
+  Schema v4 added `albums.artist_id/album_type`, `ratings.is_public/display_name`. Missing metadata is omitted, never invented.
+  Links are hash URLs (`#/album/<musicbrainz id>`), so direct opens and refreshes work; the Share button copies/shares `location.href`.
 - Decade pages mix community-rated albums with a curated `DECADES` seed list (artwork via Apple, then Cover Art Archive).
 
 ## Design system (styles.css)

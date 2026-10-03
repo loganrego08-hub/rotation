@@ -69,3 +69,41 @@ order by r.updated_at desc
 limit 100;
 
 grant select on public.album_activity, public.recent_ratings to anon, authenticated;
+-- v4: album detail pages (run in the Supabase SQL editor)
+-- Album facts, so artist links and the album type work from the cache.
+alter table public.albums add column if not exists artist_id text;
+alter table public.albums add column if not exists album_type text;
+
+-- Reviews stay private unless the writer opts in. display_name is what they choose to show (never their email).
+alter table public.ratings add column if not exists is_public boolean not null default false;
+alter table public.ratings add column if not exists display_name text check (display_name is null or char_length(display_name) <= 40);
+
+-- Save-to-library: albums a user wants to come back to, separate from rating them.
+create table if not exists public.library (
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  album_id text not null references public.albums(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, album_id)
+);
+create index if not exists library_user_created_idx on public.library (user_id, created_at desc);
+alter table public.library enable row level security;
+create policy "Users read their own library" on public.library for select to authenticated using (auth.uid() = user_id);
+create policy "Users add to their own library" on public.library for insert to authenticated with check (auth.uid() = user_id);
+create policy "Users remove from their own library" on public.library for delete to authenticated using (auth.uid() = user_id);
+
+-- Rating distribution: counts per score only.
+create or replace view public.album_score_counts as
+select album_id, score, count(*)::int as n
+from public.ratings
+group by album_id, score;
+
+-- Community reviews: only reviews whose writer chose to share them. No user ids; is_mine lets the page hide your own.
+create or replace view public.album_reviews as
+select r.id, r.album_id,
+       coalesce(nullif(btrim(r.display_name), ''), 'Anonymous listener') as author,
+       r.score, r.thoughts as body, r.standout_tracks, r.updated_at,
+       (r.user_id = auth.uid()) as is_mine
+from public.ratings r
+where r.is_public and nullif(btrim(r.thoughts), '') is not null;
+
+grant select on public.album_score_counts, public.album_reviews to anon, authenticated;

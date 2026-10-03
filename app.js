@@ -132,7 +132,13 @@ async function getAlbum(id) {
     id, title: rg.title, artist: artistName(rg["artist-credit"]), artist_id: rg["artist-credit"]?.[0]?.artist?.id,
     release_date: rg["first-release-date"] || null, cover_url: coverUrl(id, 500), tracks,
     genres: (rg.genres || []).sort((a, b) => b.count - a.count).slice(0, 4).map((g) => g.name),
+    album_type: typeLabel(rg) || null,
   };
+}
+// "Studio album", "EP", "Compilation album", "Live album"... only what MusicBrainz actually lists
+function typeLabel(rg) {
+  const p = rg["primary-type"], s = rg["secondary-types"] || [];
+  return s.length ? `${s.join(" + ")}${p ? " " + p.toLowerCase() : ""}` : p === "Album" ? "Studio album" : p || "";
 }
 
 /* ==========================================================================
@@ -156,6 +162,8 @@ const ICONS = {
   note: '<path d="M6 4h9l3 3v13H6z"/><path d="M9 11h6M9 15h4"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/>',
   compass: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
+  bookmark: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
+  share: '<path d="M12 15V4M8 8l4-4 4 4M5 13v6h14v-6"/>',
 };
 const icon = (name, cls = "icon") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -213,12 +221,12 @@ function listCard(r, rank) {
     ${scoreChip(r.score, { mine: true })}</a>`;
 }
 
-function reviewCard({ name, date, score, body, standouts = [] }) {
+function reviewCard({ name, date, score, body, standouts = [], mine = false }) {
   return `<article class="review-card">
     <header class="review-card__head">
       <span class="avatar" aria-hidden="true">${esc(name.charAt(0).toUpperCase())}</span>
-      <span class="review-card__who"><strong>${esc(name)}</strong><span class="t-meta">${date ? `Rated ${fmtDate(date, "short")}` : ""}</span></span>
-      ${scoreChip(score, { mine: true })}
+      <span class="review-card__who"><strong>${esc(name)}</strong><span class="t-meta">${date ? `Reviewed ${fmtDate(String(date).slice(0, 10), "short")}` : ""}</span></span>
+      ${scoreChip(score, { mine, label: mine ? undefined : "Reviewer's score" })}
     </header>
     <p class="review-card__body${body ? "" : " review-card__body--empty"}">${body ? esc(body) : "No notes yet. Add a few thoughts below."}</p>
     ${standouts.length ? `<div class="chips">${standouts.map((t) => `<span class="chip chip--static">${icon("star")}${esc(t)}</span>`).join("")}</div>` : ""}
@@ -906,6 +914,12 @@ async function renderProfile() {
   let rows;
   try { rows = await myRatings(); } catch { view().innerHTML = errorState({ title: "Couldn't load your profile", retry: renderProfile, compact: false }); return; }
 
+  let saved = [];
+  try {
+    const { data } = await sb.from("library").select("created_at, album:albums(id,title,artist,cover_url)").order("created_at", { ascending: false });
+    saved = (data || []).filter((r) => r.album);
+  } catch {}
+
   const avg = rows.length ? (rows.reduce((s, r) => s + r.score, 0) / rows.length).toFixed(1) : "–";
   const standouts = rows.reduce((s, r) => s + (r.standout_tracks?.length || 0), 0);
   const gCount = new Map();
@@ -917,7 +931,12 @@ async function renderProfile() {
     let list = [...rows];
     if (profileTab === "recent") list.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
     if (profileTab === "notes") list = list.filter((r) => r.thoughts);
-    const body = !rows.length
+    const body = profileTab === "saved"
+      ? (saved.length ? `<div class="grid">${saved.map((r) => albumCard({ id: r.album.id, title: r.album.title, artist: r.album.artist, art: r.album.cover_url },
+          { meta: `Saved ${fmtDate(String(r.created_at).slice(0, 10), "short")}` })).join("")}</div>`
+        : emptyState({ iconName: "bookmark", title: "Nothing saved yet", body: "Use Save to library on any album page to keep it here for later.", compact: true,
+            actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) }))
+      : !rows.length
       ? emptyState({ iconName: "disc", title: "Your shelf is empty", body: "Score your first album and your rankings, notes and standout tracks will collect here.",
           actions: button("Browse the charts", { variant: "primary", href: "#/" }) + button("Search albums", { href: "#/search", iconName: "search" }) })
       : !list.length
@@ -931,7 +950,7 @@ async function renderProfile() {
         { label: "Albums rated", value: rows.length }, { label: "Average score", value: avg },
         { label: "Standout tracks", value: standouts }, { label: "Top genre", value: topGenre }] })}
       <div class="toolbar">
-        ${tabs([["ranked", "Ranked"], ["recent", "Recently rated"], ["notes", "With notes"]], profileTab, "Sort your shelf")}
+        ${tabs([["ranked", "Ranked"], ["recent", "Recently rated"], ["notes", "With notes"], ["saved", "Saved"]], profileTab, "Sort your shelf")}
         <div class="segmented" role="group" aria-label="Layout">
           <button type="button" data-view="list" aria-pressed="${profileView === "list"}" aria-label="List view">${icon("list")}</button>
           <button type="button" data-view="grid" aria-pressed="${profileView === "grid"}" aria-label="Grid view">${icon("grid")}</button>
@@ -1015,6 +1034,26 @@ function recordSvg(score) {
     ${rings}<circle class="label" cx="68" cy="68" r="24"/><text class="num" x="68" y="69" text-anchor="middle" dominant-baseline="central">${score || "–"}</text></svg>`;
 }
 
+// counts[i] is how many people gave the album a score of i + 1
+function distribution(counts, mineScore) {
+  const max = Math.max(...counts, 1);
+  const label = counts.map((n, i) => `${i + 1}: ${n}`).join(", ");
+  return `<div class="dist" role="img" aria-label="Rating distribution, score then count. ${label}">${counts.map((n, i) => `
+    <div class="dist__col${mineScore === i + 1 ? " is-mine" : ""}" title="${plural(n, "rating")} of ${i + 1}">
+      <span class="dist__n">${n || ""}</span>
+      <span class="dist__track"><span class="dist__bar" style="height:${n ? Math.max(6, Math.round((n / max) * 100)) : 2}%"></span></span>
+      <span class="dist__label">${i + 1}</span>
+    </div>`).join("")}</div>`;
+}
+
+// Writes the album row that ratings and the library point at. Falls back to the original columns if schema v4 isn't applied yet.
+async function persistAlbum(a) {
+  const base = { id: a.id, title: a.title, artist: a.artist, release_date: a.release_date, cover_url: a.cover_url, tracks: a.tracks, genres: a.genres || [] };
+  let { error } = await sb.from("albums").upsert({ ...base, artist_id: a.artist_id || null, album_type: a.album_type || null });
+  if (error && /column/i.test(error.message)) ({ error } = await sb.from("albums").upsert(base));
+  return error;
+}
+
 async function renderAlbum(id) {
   view().innerHTML = `${loadingLabel("Loading album")}<div class="album"><div class="sk art"></div>
     <div style="display:grid;gap:14px;align-content:start"><div class="sk sk-line" style="height:44px;width:72%"></div><div class="sk sk-line" style="width:36%"></div><div class="sk" style="height:180px;border-radius:var(--r-lg);margin-top:24px"></div></div></div>`;
@@ -1026,52 +1065,73 @@ async function renderAlbum(id) {
       : errorState({ title: "Couldn't load this album", body: "MusicBrainz may be busy. Give it a moment.", retry: () => renderAlbum(id), compact: false });
     return;
   }
-  document.title = `${album.title} by ${album.artist} · Rotation`;
+  const yr = year(album.release_date);
+  document.title = `${album.title}${yr ? ` (${yr})` : ""} by ${album.artist} · Rotation`;
 
-  let mine = null, stats = null;
+  // Community numbers, your rating, library state and shared reviews. The newer views may not exist yet, so each part degrades on its own.
+  let mine = null, stats = null, counts = null, saved = false, reviews = [];
   if (sb) {
-    const [s, r] = await Promise.all([
+    const [s, r, c, l, rv] = await Promise.all([
       sb.from("album_stats").select("avg_score, rating_count").eq("album_id", id).maybeSingle(),
       user ? sb.from("ratings").select("*").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
+      sb.from("album_score_counts").select("score, n").eq("album_id", id),
+      user ? sb.from("library").select("album_id").eq("album_id", id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
+      sb.from("album_reviews").select("*").eq("album_id", id).order("updated_at", { ascending: false }).limit(20),
     ]);
-    stats = s.data; mine = r.data;
+    stats = s.data; mine = r.data; saved = !!l.data;
+    if (c.data?.length) { counts = Array(10).fill(0); c.data.forEach((x) => { if (x.score >= 1 && x.score <= 10) counts[x.score - 1] = x.n; }); }
+    reviews = (rv.data || []).filter((x) => !x.is_mine);
   }
   const state = { score: mine?.score || 0, standouts: new Set(mine?.standout_tracks || []) };
   const total = album.tracks?.reduce((s, t) => s + (t.length || 0), 0);
-  const artistHref = album.artist_id ? `#/artist/${album.artist_id}` : `#/find-artist/${encodeURIComponent(album.artist)}`;
-  const facts = [year(album.release_date), album.tracks?.length ? plural(album.tracks.length, "track") : "", total ? `${Math.round(total / 60000)} min` : ""].filter(Boolean);
+  const artistHref = (aid) => aid ? `#/artist/${aid}` : `#/find-artist/${encodeURIComponent(album.artist)}`;
+  const eyebrow = () => [album.album_type, yr].filter(Boolean).join(" · ");
+  const facts = [album.release_date ? fmtDate(album.release_date) : "", album.tracks?.length ? plural(album.tracks.length, "track") : "", total ? `${Math.round(total / 60000)} min` : ""].filter(Boolean);
+  const shared = !!mine?.is_public;
 
   view().innerHTML = `
     <article class="album">
       <div class="album__art">${artwork(album.cover_url, `${album.title} by ${album.artist}`)}</div>
       <div>
         <header class="album__head">
+          <p class="t-meta" id="albumEyebrow"${eyebrow() ? "" : " hidden"}>${esc(eyebrow())}</p>
           <h1 class="t-title">${esc(album.title)}</h1>
-          <a class="album__artist" href="${artistHref}">${esc(album.artist)}</a>
-          <div class="album__facts">${facts.map((f, i) => `${i ? '<span class="dot" aria-hidden="true"></span>' : ""}<span>${esc(f)}</span>`).join("")}</div>
+          <a class="album__artist" id="artistLink" href="${artistHref(album.artist_id)}">${esc(album.artist)}</a>
+          ${facts.length ? `<div class="album__facts">${facts.map((f, i) => `${i ? '<span class="dot" aria-hidden="true"></span>' : ""}<span>${esc(f)}</span>`).join("")}</div>` : ""}
           ${album.genres?.length ? `<div class="chips">${album.genres.map((n) => { const g = matchGenre(n);
             return g ? `<a class="chip" href="#/genre/${g.slug}">${esc(n)}</a>` : `<span class="chip chip--static">${esc(n)}</span>`; }).join("")}</div>` : ""}
         </header>
 
-        <section class="rating-panel" aria-label="Scores">
-          <div id="rec">${recordSvg(state.score)}</div>
-          <div class="rating-panel__side">
-            <div class="rating-stats">
-              <div class="rating-stat"><span class="t-meta">Community</span>
-                ${stats ? `<span class="score score--lg">${stats.avg_score}<small> /10</small></span><span class="t-meta">${plural(stats.rating_count, "rating")}</span>`
-                        : `<span class="text-2" style="font-size:var(--fs-sm)">No ratings yet</span>`}</div>
-              <div class="rating-stat"><span class="t-meta">You</span><span class="score score--lg" id="myScore">${state.score || "–"}<small> /10</small></span></div>
+        <div class="album__actions">
+          ${button(mine ? "Edit your rating" : "Rate this album", { variant: "primary", id: "jumpRate", iconName: "star" })}
+          <button type="button" class="btn btn--secondary" id="saveLib" aria-pressed="${saved}">${icon(saved ? "check" : "bookmark")}<span>${saved ? "Saved to library" : "Save to library"}</span></button>
+          ${button("Share", { id: "shareBtn", iconName: "share" })}
+        </div>
+
+        <section class="panel" aria-labelledby="comm-h">
+          <div class="panel__head"><h2 class="t-section" id="comm-h">Community rating</h2></div>
+          ${stats ? `<div class="community">
+              <div class="rating-stat"><span class="score score--lg">${stats.avg_score}<small> /10</small></span><span class="t-meta">${plural(stats.rating_count, "rating")}</span></div>
+              ${counts ? distribution(counts, state.score) : ""}</div>`
+            : `<p class="text-2" style="font-size:var(--fs-sm)">No ratings yet. Be the first to score it.</p>`}
+        </section>
+
+        <section class="panel" id="yourRating" aria-labelledby="you-h">
+          <div class="panel__head"><h2 class="t-section" id="you-h">Your rating</h2>
+            <span class="t-meta">${mine ? `Rated ${fmtDate(String(mine.updated_at || mine.created_at).slice(0, 10), "short")}` : "Not rated yet"}</span></div>
+          <div class="rating-panel rating-panel--bare">
+            <div id="rec">${recordSvg(state.score)}</div>
+            <div class="rating-panel__side">
+              <div class="rating-stat"><span class="t-meta">Your score</span><span class="score score--lg" id="myScore">${state.score || "–"}<small> /10</small></span></div>
+              <div><p class="t-label" id="pickLabel" style="margin-bottom:var(--s-2)">${mine ? "Change your score" : "Pick a score"}</p>
+                <div class="picker" id="picker" role="group" aria-labelledby="pickLabel">${Array.from({ length: 10 }, (_, i) =>
+                  `<button type="button" data-s="${i + 1}" aria-pressed="${state.score === i + 1}">${i + 1}</button>`).join("")}</div></div>
             </div>
-            <div><p class="t-label" id="pickLabel" style="margin-bottom:var(--s-2)">${mine ? "Change your score" : "Your score"}</p>
-              <div class="picker" id="picker" role="group" aria-labelledby="pickLabel">${Array.from({ length: 10 }, (_, i) =>
-                `<button type="button" data-s="${i + 1}" aria-pressed="${state.score === i + 1}">${i + 1}</button>`).join("")}</div></div>
           </div>
         </section>
 
-        ${mine ? `<section class="block"><h2 class="t-section">Your review</h2>${reviewCard({ name: displayName(), date: mine.updated_at, score: mine.score, body: mine.thoughts, standouts: mine.standout_tracks || [] })}</section>` : ""}
-
         <section class="block">
-          <div class="block__head"><h2 class="t-section">Tracklist</h2><span class="t-meta">Star your standouts</span></div>
+          <div class="block__head"><h2 class="t-section">Tracklist</h2>${album.tracks?.length ? `<span class="t-meta">Star your standouts</span>` : ""}</div>
           ${album.tracks?.length ? `<ol class="tracks" id="tracks">${album.tracks.map((t) => `
             <li class="track${state.standouts.has(t.title) ? " is-standout" : ""}">
               <span class="track__pos">${esc(t.pos)}</span><span class="track__title">${esc(t.title)}</span>
@@ -1082,19 +1142,72 @@ async function renderAlbum(id) {
         </section>
 
         <section class="block">
-          <label class="field"><span class="t-section">Notes</span>
-            <textarea id="thoughts" class="textarea" placeholder="What stuck with you? Favorite moments, how it holds up, where it fits.">${esc(mine?.thoughts || "")}</textarea>
-            <span class="field__hint">Only you can see your notes. Your score counts toward the community average.</span>
+          <label class="field"><span class="t-section">Your review <span class="t-meta">Optional</span></span>
+            <textarea id="thoughts" class="textarea" maxlength="2000" placeholder="What stuck with you? Favorite moments, how it holds up, where it fits.">${esc(mine?.thoughts || "")}</textarea>
           </label>
+          <label class="check"><input type="checkbox" id="isPublic"${shared ? " checked" : ""}><span>Share this review with the community</span></label>
+          <label class="field" id="nameField"${shared ? "" : " hidden"}><span class="field__label">Show as</span>
+            <input id="displayNameInput" class="input" maxlength="40" placeholder="Anonymous listener" value="${esc(mine?.display_name || "")}" autocomplete="off">
+          </label>
+          <span class="field__hint" id="reviewHint"></span>
         </section>
 
         <div class="save-bar">
           ${button(mine ? "Update rating" : "Save rating", { variant: "primary", id: "save" })}
           ${mine ? button("Remove rating", { variant: "ghost", id: "remove", attrs: 'data-danger="1"' }) : ""}
         </div>
-      </div>
-    </article>`;
 
+        <section class="block" id="reviews" aria-labelledby="rev-h">
+          <div class="block__head"><h2 class="t-section" id="rev-h">Community reviews</h2>${reviews.length ? `<span class="t-meta">${plural(reviews.length, "review")}</span>` : ""}</div>
+          ${reviews.length ? `<div class="reviews">${reviews.map((r) => reviewCard({ name: r.author, date: r.updated_at, score: r.score, body: r.body, standouts: r.standout_tracks || [] })).join("")}</div>`
+            : emptyState({ iconName: "note", title: "No written reviews yet", body: "Reviews appear here when listeners choose to share them. Notes stay private unless the writer shares them.", plain: true })}
+        </section>
+      </div>
+    </article>
+    <div id="albumMore"></div>`;
+
+  // Fall back to Apple artwork when the Cover Art Archive has none
+  $(".album__art img")?.addEventListener("error", () => appleArt(album.artist, album.title).then((url) => {
+    const slot = url && $(".album__art .art");
+    if (slot?.isConnected) slot.outerHTML = artwork(url, `${album.title} by ${album.artist}`);
+  }));
+
+  const paintHint = () => {
+    $("#nameField").hidden = !$("#isPublic").checked;
+    $("#reviewHint").textContent = $("#isPublic").checked
+      ? "Your review and score will show on this page under the name above. Your email is never shown."
+      : "Only you can see your review. Your score still counts toward the community average.";
+  };
+  // On phones the Save bar floats above the tab bar, but only once there is something to save
+  const markDirty = () => $(".save-bar")?.classList.add("is-dirty");
+  $("#isPublic").onchange = () => { paintHint(); markDirty(); };
+  $("#thoughts").addEventListener("input", markDirty);
+  $("#displayNameInput").addEventListener("input", markDirty);
+  $("#picker").addEventListener("click", markDirty);
+  $("#tracks")?.addEventListener("click", markDirty);
+  paintHint();
+
+  $("#jumpRate").onclick = () => { $("#yourRating").scrollIntoView({ block: "start" }); $("#picker button").focus({ preventScroll: true }); };
+  $("#shareBtn").onclick = async () => {
+    const data = { title: `${album.title} by ${album.artist}`, text: `${album.title} by ${album.artist} on Rotation`, url: location.href };
+    if (navigator.share) { try { await navigator.share(data); } catch {} return; }
+    try { await navigator.clipboard.writeText(location.href); toast("Link copied"); } catch { toast("Copy the link from your address bar", "info"); }
+  };
+  $("#saveLib").onclick = async () => {
+    if (!sb) return toast("Your library is offline right now", "error");
+    if (!user) return openAuth();
+    const btn = $("#saveLib"); btn.setAttribute("aria-busy", "true");
+    let error = await persistAlbum(album);
+    if (!error) ({ error } = saved
+      ? await sb.from("library").delete().eq("album_id", album.id).eq("user_id", user.id)
+      : await sb.from("library").insert({ album_id: album.id }));
+    btn.removeAttribute("aria-busy");
+    if (error) return toast(`Couldn't update your library: ${error.message}`, "error");
+    saved = !saved;
+    btn.setAttribute("aria-pressed", String(saved));
+    btn.innerHTML = `${icon(saved ? "check" : "bookmark")}<span>${saved ? "Saved to library" : "Save to library"}</span>`;
+    toast(saved ? "Saved to your library" : "Removed from your library", saved ? "success" : "info");
+  };
   $("#picker").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
     state.score = +b.dataset.s;
@@ -1114,15 +1227,14 @@ async function renderAlbum(id) {
     if (!user) return openAuth();
     if (!state.score) return toast("Pick a score from 1 to 10 first", "info");
     const btn = $("#save"); btn.setAttribute("aria-busy", "true");
-    const { error: aErr } = await sb.from("albums").upsert({
-      id: album.id, title: album.title, artist: album.artist, release_date: album.release_date,
-      cover_url: album.cover_url, tracks: album.tracks, genres: album.genres || [],
-    });
-    const { error } = aErr ? { error: aErr } : await sb.from("ratings").upsert({
-      user_id: user.id, album_id: album.id, score: state.score,
-      standout_tracks: [...state.standouts], thoughts: $("#thoughts").value.trim() || null,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id,album_id" });
+    const aErr = await persistAlbum(album);
+    const body = $("#thoughts").value.trim() || null;
+    const pub = !!body && $("#isPublic").checked, name = $("#displayNameInput").value.trim();
+    const row = { user_id: user.id, album_id: album.id, score: state.score, standout_tracks: [...state.standouts], thoughts: body, updated_at: new Date().toISOString() };
+    // Only send the sharing columns when they matter, so saving still works before schema v4 is applied
+    if (pub || mine?.is_public) row.is_public = pub;
+    if (pub || name || mine?.display_name) row.display_name = name || null;
+    const { error } = aErr ? { error: aErr } : await sb.from("ratings").upsert(row, { onConflict: "user_id,album_id" });
     btn.removeAttribute("aria-busy");
     if (error) return toast(`Couldn't save: ${error.message}`, "error");
     toast(mine ? "Rating updated" : "Rating saved");
@@ -1135,6 +1247,45 @@ async function renderAlbum(id) {
     toast("Rating removed", "info");
     renderAlbum(id);
   });
+
+  loadAlbumMore(album, artistHref);
+}
+
+// Fills in anything the cached row lacked (artist id, type), then adds artist and related-album rows
+async function loadAlbumMore(album, artistHref) {
+  const wrap = $("#albumMore");
+  if (!wrap) return;
+  if (!album.artist_id || !album.album_type) {
+    try {
+      const rg = await getJSON(`${MB}/release-group/${album.id}?inc=artist-credits&fmt=json`);
+      album.artist_id = album.artist_id || rg["artist-credit"]?.[0]?.artist?.id || null;
+      album.album_type = album.album_type || typeLabel(rg) || null;
+      if (!wrap.isConnected) return;
+      const link = $("#artistLink"); if (link) link.href = artistHref(album.artist_id);
+      const eb = $("#albumEyebrow");
+      if (eb) { eb.textContent = [album.album_type, year(album.release_date)].filter(Boolean).join(" · "); eb.hidden = !eb.textContent; }
+      if (user) sb.from("albums").update({ artist_id: album.artist_id, album_type: album.album_type }).eq("id", album.id).then(() => {});
+    } catch {}
+  }
+  const sections = [];
+  if (album.artist_id) {
+    try {
+      const j = await getJSON(`${MB}/release-group?artist=${album.artist_id}&type=album&limit=100&fmt=json`);
+      const more = (j["release-groups"] || []).filter((g) => g.id !== album.id && isStudioAlbum(g))
+        .sort((x, y) => (y["first-release-date"] || "").localeCompare(x["first-release-date"] || "")).slice(0, 12);
+      if (more.length) sections.push(`<section class="section">${sectionHead(`More from ${album.artist}`, { link: `#/artist/${album.artist_id}`, linkLabel: "All albums" })}
+        <div class="row">${more.map((g) => albumCard({ id: g.id, title: g.title, art: coverUrl(g.id, 250) }, { meta: year(g["first-release-date"]) || null })).join("")}</div></section>`);
+    } catch {}
+  }
+  if (sb && album.genres?.length) {
+    const { data } = await sb.from("albums").select("id, title, artist, cover_url").overlaps("genres", album.genres).neq("id", album.id).limit(12);
+    if (data?.length) {
+      const g = matchGenre(album.genres[0]);
+      sections.push(`<section class="section">${sectionHead(`More ${album.genres.slice(0, 2).join(" and ")} on Rotation`, { link: g ? `#/genre/${g.slug}` : null, linkLabel: "Genre chart" })}
+        <div class="row">${data.map((a) => albumCard({ id: a.id, title: a.title, artist: a.artist, art: a.cover_url })).join("")}</div></section>`);
+    }
+  }
+  if (wrap.isConnected) wrap.innerHTML = sections.join("");
 }
 
 function renderNotFound() {

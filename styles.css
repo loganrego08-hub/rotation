@@ -554,14 +554,17 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
   .genres { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
   .genre-card { padding: var(--s-3); gap: var(--s-3); }
   .album { grid-template-columns: 1fr; gap: var(--s-6); }
-  .album__art { position: static; }
+  .album__art { position: static; width: min(100%, 340px); margin-inline: auto; }
   .rating-panel { grid-template-columns: 96px 1fr; gap: var(--s-4); padding: var(--s-4); }
   .record { width: 96px; height: 96px; }
   .rating-stats { gap: var(--s-6); }
   .picker { grid-column: 1 / -1; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-2); }
   .picker button { height: 48px; font-size: var(--fs-base); }
   .decades { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .save-bar { position: sticky; bottom: calc(var(--tabbar-h) + var(--s-3) + env(safe-area-inset-bottom, 0px)); z-index: 5; padding: var(--s-2); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-lg); }
+  .community { grid-template-columns: minmax(0, 1fr); gap: var(--s-4); }
+  .panel { padding: var(--s-4); }
+  .album__actions .btn { flex: 1 1 auto; }
+  .save-bar.is-dirty { position: sticky; bottom: calc(var(--tabbar-h) + var(--s-3) + env(safe-area-inset-bottom, 0px)); z-index: 5; padding: var(--s-2); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-lg); }
   .save-bar .btn--primary { flex: 1; height: 44px; }
   .profile { grid-template-columns: 1fr; gap: var(--s-4); }
   .list-card { grid-template-columns: 1.75rem 48px minmax(0, 1fr) auto; gap: var(--s-3); padding: var(--s-3) 0; }
@@ -585,3 +588,29 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 .genre-card__covers { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .genre-card, .album-card, .sk-card, .artist-card, .decade-card { grid-template-columns: minmax(0, 1fr); }
+
+/* ==========================================================================
+   Album detail page
+   ========================================================================== */
+[hidden] { display: none !important; }
+.album__head { margin-bottom: var(--s-6); }
+.album__actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-bottom: var(--s-8); }
+.btn[aria-pressed="true"] { border-color: var(--accent-line); color: var(--accent); }
+
+.panel { display: grid; gap: var(--s-4); padding: var(--s-6); background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-lg); }
+.panel + .panel { margin-top: var(--s-4); }
+.panel__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4); }
+.rating-panel--bare { padding: 0; background: none; border: 0; border-radius: 0; }
+
+.community { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-8); align-items: end; }
+.dist { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; height: 120px; }
+.dist__col { display: grid; grid-template-rows: 16px minmax(0, 1fr) 16px; justify-items: center; gap: 4px; min-width: 0; }
+.dist__n, .dist__label { font-size: var(--fs-xs); color: var(--text-3); line-height: 16px; }
+.dist__track { display: flex; align-items: flex-end; width: 100%; height: 100%; }
+.dist__bar { display: block; width: 100%; border-radius: 3px 3px 0 0; background: var(--text-3); opacity: 0.55; }
+.dist__col.is-mine .dist__bar { background: var(--accent); opacity: 1; }
+.dist__col.is-mine .dist__label, .dist__col.is-mine .dist__n { color: var(--accent); }
+
+.check { display: flex; align-items: flex-start; gap: var(--s-3); font-size: var(--fs-sm); color: var(--text-2); cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+.reviews { display: grid; gap: var(--s-4); }
