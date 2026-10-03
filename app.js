@@ -4,22 +4,22 @@ const configured = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_AN
 const sb = configured ? supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
 const MB = "https://musicbrainz.org/ws/2";
 const CAA = "https://coverartarchive.org/release-group";
-const APPLE_TOP = "https://rss.applemarketingtools.com/api/v2/us/music/most-played/50/albums.json";
-const ITUNES = (genre, n = 50) => `https://itunes.apple.com/us/rss/topalbums/limit=${n}/${genre ? `genre=${genre}/` : ""}json`;
+const CHART = (slug) => `/api/chart?slug=${slug}`;
 
+// Every genre tile is one of Billboard's weekly album charts
 const GENRES = [
-  { slug: "pop", name: "Pop", apple: 14, tags: ["pop", "dance-pop", "synth-pop", "electropop"], color: "#D9467E" },
-  { slug: "hip-hop", name: "Hip-hop & rap", apple: 18, tags: ["hip hop", "rap", "trap", "conscious hip hop"], color: "#E07A1F" },
-  { slug: "rnb", name: "R&B & soul", apple: 15, tags: ["r&b", "rnb", "soul", "contemporary r&b", "neo soul"], color: "#9B45C9" },
-  { slug: "alternative", name: "Alternative", apple: 20, tags: ["alternative", "indie", "indie rock", "alternative rock", "indie pop", "shoegaze"], color: "#2A9483" },
-  { slug: "rock", name: "Rock", apple: 21, tags: ["rock", "hard rock", "classic rock", "punk"], color: "#C93A2B" },
-  { slug: "country", name: "Country", apple: 6, tags: ["country", "americana", "folk"], color: "#B78A2E" },
-  { slug: "electronic", name: "Electronic", apple: 7, tags: ["electronic", "house", "techno", "edm", "ambient", "dance"], color: "#3570E0" },
-  { slug: "jazz", name: "Jazz", apple: 11, tags: ["jazz"], color: "#4F6185" },
-  { slug: "christian", name: "Christian & gospel", apple: 22, tags: ["christian", "gospel", "worship", "ccm"], color: "#6E9634" },
-  { slug: "latin", name: "Latin", apple: 12, tags: ["latin", "reggaeton", "latin pop"], color: "#D9593A" },
-  { slug: "metal", name: "Metal", apple: 1153, tags: ["metal", "heavy metal", "metalcore", "death metal"], color: "#454A55" },
-  { slug: "classical", name: "Classical", apple: 5, tags: ["classical", "orchestral"], color: "#86684F" },
+  { slug: "hip-hop", name: "Hip-hop & R&B", chart: "r-b-hip-hop-albums", tags: ["hip hop", "rap", "trap", "r&b", "rnb", "soul", "neo soul", "contemporary r&b"], color: "#E07A1F" },
+  { slug: "rap", name: "Rap", chart: "rap-albums", tags: ["rap", "hip hop", "trap", "conscious hip hop", "gangsta rap"], color: "#B8532A" },
+  { slug: "country", name: "Country", chart: "top-country-albums", tags: ["country", "country pop", "contemporary country", "bro-country"], color: "#B78A2E" },
+  { slug: "rock", name: "Rock", chart: "top-rock-albums", tags: ["rock", "classic rock", "pop rock", "punk", "pop punk"], color: "#C93A2B" },
+  { slug: "alternative", name: "Alternative", chart: "alternative-albums", tags: ["alternative", "indie", "indie rock", "alternative rock", "indie pop", "shoegaze", "emo"], color: "#2A9483" },
+  { slug: "hard-rock", name: "Hard rock & metal", chart: "hard-rock-albums", tags: ["metal", "heavy metal", "hard rock", "metalcore", "death metal", "nu metal"], color: "#454A55" },
+  { slug: "electronic", name: "Dance & electronic", chart: "dance-electronic-albums", tags: ["electronic", "house", "techno", "edm", "dance", "dubstep", "synth-pop"], color: "#3570E0" },
+  { slug: "latin", name: "Latin", chart: "latin-albums", tags: ["latin", "reggaeton", "latin pop", "regional mexican", "corridos"], color: "#D9593A" },
+  { slug: "americana", name: "Americana & folk", chart: "americana-folk-albums", tags: ["americana", "folk", "indie folk", "singer-songwriter", "bluegrass"], color: "#7E6A3A" },
+  { slug: "christian", name: "Christian", chart: "christian-albums", tags: ["christian", "worship", "ccm", "contemporary christian", "gospel"], color: "#6E9634" },
+  { slug: "jazz", name: "Jazz", chart: "jazz-albums", tags: ["jazz", "vocal jazz", "smooth jazz"], color: "#4F6185" },
+  { slug: "soundtracks", name: "Soundtracks", chart: "soundtracks", tags: ["soundtrack", "film score", "musical", "show tunes"], color: "#86684F" },
 ];
 
 const $ = (s) => document.querySelector(s);
@@ -66,61 +66,26 @@ const BLOCK_TEXT = /kidz bop|cocomelon|super simple|pinkfong|baby ?shark|lullab|
 const keep = (it) => !BLOCK_GENRES.test(it.genre || "") && !BLOCK_TEXT.test(`${it.title} ${it.artist}`);
 
 /* Listener counts from ListenBrainz, used to rank picks and drop obscure ones */
-async function listeners(ids) {
-  if (!ids.length) return new Map();
-  const r = await fetch("https://api.listenbrainz.org/1/popularity/release-group", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ release_group_mbids: ids }),
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const j = await r.json();
-  return new Map((Array.isArray(j) ? j : j.payload || []).map((x) => [x.release_group_mbid, x.total_user_count || 0]));
-}
-
-async function itunesChart(genreId, n = 50) {
-  const j = await getJSON(ITUNES(genreId, n));
-  let e = j.feed?.entry || [];
-  if (!Array.isArray(e)) e = [e];
-  return e.map((x) => ({
-    title: x["im:name"].label, artist: x["im:artist"].label,
-    art: bigArt(x["im:image"]?.at(-1)?.label), genre: x.category?.attributes?.label || "",
-  })).filter(keep).map((x, i) => ({ ...x, rank: i + 1 }));
-}
-async function mbGenreChart(g) {
-  const q = `tag:"${g.tags[0]}" AND primarytype:album AND status:official`;
-  const j = await getJSON(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=40`);
-  let items = (j["release-groups"] || []).filter(isStudioAlbum).map((x) => ({ id: x.id, title: x.title, artist: artistName(x["artist-credit"]), art: coverUrl(x.id, 250), genre: tagNames(x).join(", ") })).filter(keep);
-  try {
-    const n = await listeners(items.map((x) => x.id));
-    items = items.filter((x) => (n.get(x.id) || 0) >= 100).sort((a, b) => (n.get(b.id) || 0) - (n.get(a.id) || 0));
-  } catch {}
-  return items.map((x, i) => ({ ...x, rank: i + 1 }));
-}
 let chartWeek = null;
 function movement(x) {
+  if (x.weeks == null && x.lastWeek == null) return "";
   if (x.lastWeek == null) return x.weeks > 1 ? "Back on the chart" : "New this week";
   if (x.lastWeek > x.rank) return `Up ${x.lastWeek - x.rank}`;
   if (x.lastWeek < x.rank) return `Down ${x.rank - x.lastWeek}`;
   return "Holding steady";
 }
+// Billboard charts through our cached /api/chart endpoint. Official ranks are kept as-is.
+async function billboard(slug) {
+  const j = await getJSON(CHART(slug));
+  if (!j.items?.length) throw new Error(j.error || "Chart unavailable");
+  return { name: j.name, week: j.week, items: j.items.filter(keep).map((x) => ({ ...x, why: movement(x) })) };
+}
 async function topChart() {
-  // Billboard 200 via our own cached endpoint (official ranks, so no renumbering)
-  try {
-    const j = await getJSON("/api/billboard");
-    if (j.items?.length) { chartWeek = j.week; return j.items.filter(keep).map((x) => ({ ...x, why: movement(x) })); }
-  } catch {}
-  try {
-    const j = await getJSON(APPLE_TOP);
-    return j.feed.results.map((x) => ({ title: x.name, artist: x.artistName, art: bigArt(x.artworkUrl100), genre: (x.genres || []).map((g) => g.name).join(", ") }))
-      .filter(keep).map((x, i) => ({ ...x, rank: i + 1 }));
-  } catch {
-    return itunesChart(null);
-  }
+  const c = await billboard("billboard-200");
+  chartWeek = c.week;
+  return c.items;
 }
-async function genreChart(g) {
-  try { const r = await itunesChart(g.apple); if (r.length) return r; } catch {}
-  return mbGenreChart(g);
-}
+const genreChart = (g) => billboard(g.chart);
 function matchGenre(name) {
   const n = String(name || "").toLowerCase();
   return GENRES.find((g) => g.tags.includes(n)) || GENRES.find((g) => g.tags.some((t) => n.includes(t)));
@@ -258,7 +223,7 @@ async function renderHome() {
     </section>
 
     <section class="shelf">
-      <div class="shelf-head"><h2>Browse by genre</h2><p>Top albums in each genre, updated daily</p></div>
+      <div class="shelf-head"><h2>Browse by genre</h2><p>Billboard's weekly genre album charts</p></div>
       <div class="genres">${GENRES.map(genreTile).join("")}</div>
     </section>
 
@@ -343,75 +308,48 @@ const tagNames = (x) => {
 const isStudioAlbum = (rg) => (rg["primary-type"] || "Album") === "Album" && !(rg["secondary-types"] || []).length;
 
 async function buildRecs(ratings) {
-  const ratedIds = new Set(ratings.map((r) => r.album?.id));
   const ratedKeys = new Set(ratings.map((r) => norm(r.album?.title) + "|" + norm(r.album?.artist)));
-  const seeds = ratings.filter((r) => r.album && r.score >= 7).slice(0, 6);
+  const seeds = ratings.filter((r) => r.album && r.score >= 7).slice(0, 8);
   if (!seeds.length) seeds.push(...ratings.filter((r) => r.album).slice(0, 3));
 
-  const artistWeight = new Map(); // mbid -> {name, w}
-  const genreWeight = new Map();  // genre -> weight
+  // Work out which Billboard genre charts fit your taste
+  const weight = new Map(), loved = new Set();
   for (const r of seeds) {
-    let rg;
-    try { rg = await mbSlow(`${MB}/release-group/${r.album.id}?inc=artist-credits+genres+tags&fmt=json`); } catch { continue; }
-    (rg["artist-credit"] || []).slice(0, 2).forEach((c) => {
-      const a = artistWeight.get(c.artist.id) || { name: c.artist.name, w: 0 };
-      a.w += r.score; artistWeight.set(c.artist.id, a);
-    });
-    let tags = tagNames(rg);
-    if (tags.length < 2 && rg["artist-credit"]?.[0]) {
-      try { tags = tags.concat(tagNames(await mbSlow(`${MB}/artist/${rg["artist-credit"][0].artist.id}?inc=genres+tags&fmt=json`))); } catch {}
-    }
-    tags.slice(0, 5).forEach((t, i) => genreWeight.set(t, (genreWeight.get(t) || 0) + r.score * (5 - i)));
-    // Fill in genres for albums saved before genres were tracked
-    const g = (rg.genres || []).sort((a, b) => b.count - a.count).slice(0, 4).map((x) => x.name);
-    if (g.length && !(r.album.genres || []).length) sb.from("albums").update({ genres: g }).eq("id", r.album.id).then(() => {});
-  }
-
-  const byArtist = [], byTag = [], byChart = [];
-  const topArtists = [...artistWeight.entries()].sort((a, b) => b[1].w - a[1].w).slice(0, 3);
-  for (const [mbid, a] of topArtists) {
-    try {
-      const j = await mbSlow(`${MB}/release-group?artist=${mbid}&type=album&limit=50&fmt=json`);
-      let albums = (j["release-groups"] || []).filter(isStudioAlbum)
-        .sort((x, y) => (y["first-release-date"] || "").localeCompare(x["first-release-date"] || ""));
+    loved.add(norm(r.album.artist));
+    let names = r.album.genres || [];
+    if (!names.length) {
       try {
-        const n = await listeners(albums.map((x) => x.id));
-        albums = albums.filter((x) => (n.get(x.id) || 0) >= 20).sort((x, y) => (n.get(y.id) || 0) - (n.get(x.id) || 0));
+        const rg = await mbSlow(`${MB}/release-group/${r.album.id}?inc=genres+tags&fmt=json`);
+        names = tagNames(rg).slice(0, 5);
+        const g = (rg.genres || []).sort((a, b) => b.count - a.count).slice(0, 4).map((x) => x.name);
+        if (g.length) sb.from("albums").update({ genres: g }).eq("id", r.album.id).then(() => {});
       } catch {}
-      albums.slice(0, 5).forEach((x) => byArtist.push({ id: x.id, title: x.title, artist: a.name, art: coverUrl(x.id, 250), why: `More from ${a.name}` }));
-    } catch {}
+    }
+    names.slice(0, 5).forEach((n, i) => { const g = matchGenre(n); if (g) weight.set(g, (weight.get(g) || 0) + r.score * (5 - i)); });
   }
-  const generic = new Set(["rock", "pop", "electronic", "hip hop", "rap", "jazz", "soul", "alternative", "indie", "american", "british", "english"]);
-  const topTags = [...genreWeight.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t)
-    .sort((a, b) => generic.has(a) - generic.has(b)).slice(0, 3);
-  for (const t of topTags) {
-    try {
-      const q = `tag:"${t.replace(/["\\]/g, "")}" AND primarytype:album AND status:official`;
-      const j = await mbSlow(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=25`);
-      const cands = (j["release-groups"] || []).filter(isStudioAlbum)
-        .map((x) => ({ id: x.id, title: x.title, artist: artistName(x["artist-credit"]), art: coverUrl(x.id, 250), genre: tagNames(x).join(", "), why: `Because you like ${t}` }))
-        .filter(keep);
-      const n = await listeners(cands.map((x) => x.id)); // no listener data means no tag picks
-      cands.filter((x) => (n.get(x.id) || 0) >= 100)
-        .sort((a, b) => (n.get(b.id) || 0) - (n.get(a.id) || 0))
-        .slice(0, 8).forEach((x) => byTag.push(x));
-    } catch {}
-  }
-  const broad = [...new Set(topTags.concat([...genreWeight.keys()]).map(matchGenre).filter(Boolean))].slice(0, 2);
-  for (const g of broad) {
-    try { (await itunesChart(g.apple, 25)).forEach((x) => byChart.push({ ...x, why: `Popular in ${g.name.toLowerCase()}` })); } catch {}
-  }
+  const picks = [...weight.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([g]) => g);
+
+  // Pull those charts plus the Billboard 200
+  const lists = await Promise.all(picks.map((g) => genreChart(g)
+    .then((c) => c.items.map((x) => ({ ...x, why: `#${x.rank} on ${g.name} albums` }))).catch(() => [])));
+  const b200 = await topChart().then((l) => l.map((x) => ({ ...x, why: `#${x.rank} on the Billboard 200` }))).catch(() => []);
+
+  const pool = [];
+  const max = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < max; i++) lists.forEach((l) => l[i] && pool.push(l[i]));
+  pool.push(...b200);
 
   const out = [], seen = new Set();
-  const take = (it) => {
-    if (!it || !keep(it)) return;
+  for (const it of pool) {
     const k = norm(it.title) + "|" + norm(it.artist);
-    if ((it.id && ratedIds.has(it.id)) || ratedKeys.has(k) || seen.has(k)) return;
-    seen.add(k); out.push(it);
-  };
-  const max = Math.max(byArtist.length, byTag.length, byChart.length);
-  for (let i = 0; i < max && out.length < 18; i++) { take(byArtist[i]); take(byTag[i]); take(byChart[i]); }
-  return { items: out, artists: topArtists.map(([, a]) => a.name), tags: topTags };
+    if (ratedKeys.has(k) || seen.has(k) || !keep(it)) continue;
+    seen.add(k);
+    if (loved.has(norm(it.artist))) it.why = "From an artist you rate highly";
+    out.push(it);
+  }
+  // Artists you already love first, then by chart position
+  out.sort((a, b) => (loved.has(norm(b.artist)) - loved.has(norm(a.artist))));
+  return { items: out.slice(0, 18), genres: picks.map((g) => g.name) };
 }
 
 async function loadRecs() {
@@ -430,16 +368,15 @@ async function loadRecs() {
   $("#recWhy").textContent = "Tuning picks to what you've rated highly…";
   const sig = user.id + ":" + ratings.map((r) => r.album?.id + r.score).join(",");
   let recs;
-  try { recs = JSON.parse(sessionStorage.getItem("recs3:" + sig) || "null"); } catch {}
+  try { recs = JSON.parse(sessionStorage.getItem("recs4:" + sig) || "null"); } catch {}
   if (!recs) {
     try { recs = await buildRecs(ratings); } catch { recs = { items: [] }; }
-    try { sessionStorage.setItem("recs3:" + sig, JSON.stringify(recs)); } catch {}
+    try { sessionStorage.setItem("recs4:" + sig, JSON.stringify(recs)); } catch {}
   }
   if (!$("#recs")) return; // navigated away
-  const bits = [];
-  if (recs.artists?.length) bits.push(recs.artists.slice(0, 2).join(" and "));
-  if (recs.tags?.length) bits.push(recs.tags.slice(0, 2).join(" and "));
-  $("#recWhy").textContent = bits.length ? `Based on your love of ${bits.join(", plus ")}` : "Based on what you've rated highly";
+  $("#recWhy").textContent = recs.genres?.length
+    ? `From this week's Billboard ${recs.genres.join(", ").toLowerCase()} charts, matched to what you rate highly`
+    : "From this week's Billboard 200, minus what you've already rated";
   if (!recs.items.length) return failNote(el, "Couldn't find recommendations right now. Refresh to try again.");
   el.innerHTML = recs.items.map((it) => card(it)).join("");
 }
@@ -453,16 +390,16 @@ async function renderGenre(slug) {
     <section class="genre-head" style="--g:${g.color}">
       <a href="#/" class="back">All genres</a>
       <h1>${esc(g.name)}</h1>
-      <p>The top albums in ${esc(g.name.toLowerCase())} right now</p>
+      <p id="gsub">This week's Billboard chart</p>
     </section>
     <div class="chips">${GENRES.filter((x) => x !== g).map((x) => `<a href="#/genre/${x.slug}" style="--g:${x.color}">${esc(x.name)}</a>`).join("")}</div>
     <div class="grid ranked-grid" id="glist">${skeleton(12)}</div>`;
   const el = $("#glist");
   try {
-    const items = await genreChart(g);
-    if (!items.length) throw new Error();
-    el.innerHTML = items.map((it) => card(it, { ranked: true })).join("");
-  } catch { el.className = ""; failNote(el, "This genre's chart couldn't load right now. Refresh to try again."); }
+    const c = await genreChart(g);
+    if ($("#gsub")) $("#gsub").textContent = `Billboard ${c.name.replace(/^Billboard\s*/i, "")}${c.week ? `, week of ${fmtDate(c.week)}` : ""}`;
+    el.innerHTML = c.items.map((it) => card(it, { ranked: true })).join("");
+  } catch { el.className = ""; failNote(el, "This Billboard chart couldn't load right now. Refresh to try again."); }
 }
 
 /* ---------- Chart item → album page ---------- */
