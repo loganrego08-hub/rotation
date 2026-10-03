@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rotation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="bar">
+  <a href="#/" class="wordmark" aria-label="Rotation home">Rotation</a>
+  <div class="search">
+    <input id="q" type="search" placeholder="Look up an album or artist" autocomplete="off" aria-label="Search albums">
+    <div id="results" class="results" hidden></div>
+  </div>
+  <div id="account" class="account"></div>
+</header>
+
+<main id="view"></main>
+
+<dialog id="authDialog">
+  <form id="authForm" method="dialog">
+    <h2 id="authTitle">Sign in</h2>
+    <p class="muted">Your ratings are saved to your account and count toward each album's average.</p>
+    <label>Email<input id="authEmail" type="email" required autocomplete="email"></label>
+    <label>Password<input id="authPass" type="password" required minlength="6" autocomplete="current-password"></label>
+    <p id="authError" class="error" hidden></p>
+    <div class="row">
+      <button type="submit" class="btn primary" id="authSubmit">Sign in</button>
+      <button type="button" class="btn ghost" id="authToggle">Create an account instead</button>
+    </div>
+    <button type="button" class="close" id="authClose" aria-label="Close">×</button>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
