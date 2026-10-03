@@ -354,26 +354,56 @@ function renderAccount() {
   menu.addEventListener("click", (e) => { if (e.target.closest("a")) close(); });
   $("#signOut").onclick = async () => { close(); await sb.auth.signOut(); toast("Signed out", "info"); };
 }
-let signingUp = false;
+let signingUp = false, recovering = false;
+function showAuthMessage(text, kind = "error") { const err = $("#authError"); err.className = `alert alert--${kind}`; err.textContent = text; err.hidden = false; }
 function openAuth() { setAuthMode(false); $("#authError").hidden = true; $("#authDialog").showModal(); $("#authEmail").focus(); }
 function setAuthMode(up) {
-  signingUp = up;
+  signingUp = up; recovering = false;
   $("#authTitle").textContent = up ? "Create your account" : "Sign in";
   $("#authSubmit").textContent = up ? "Create account" : "Sign in";
   $("#authToggle").textContent = up ? "I already have an account" : "Create an account instead";
+  $("#authToggle").hidden = false; $("#authEmailField").hidden = false; $("#authEmail").required = true;
+  $("#authForgot").hidden = up;
   $("#authPass").autocomplete = up ? "new-password" : "current-password";
+}
+// Arriving from a password-reset email: the person is signed in just long enough to choose a new password
+function openRecovery() {
+  setAuthMode(false); recovering = true;
+  $("#authTitle").textContent = "Choose a new password";
+  $("#authSubmit").textContent = "Save new password";
+  $("#authToggle").hidden = true; $("#authForgot").hidden = true; $("#authEmailField").hidden = true; $("#authEmail").required = false;
+  $("#authPass").autocomplete = "new-password"; $("#authError").hidden = true;
+  if (!$("#authDialog").open) $("#authDialog").showModal();
+  $("#authPass").focus();
 }
 $("#authToggle").onclick = () => setAuthMode(!signingUp);
 $("#authClose").onclick = () => $("#authDialog").close();
+$("#authForgot").onclick = async () => {
+  const email = $("#authEmail").value.trim();
+  if (!email) { showAuthMessage("Enter your email above, then choose Forgot password."); $("#authEmail").focus(); return; }
+  const btn = $("#authForgot"); btn.setAttribute("aria-busy", "true");
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  btn.removeAttribute("aria-busy");
+  // The same message whether or not an account exists, so this can't be used to discover who has one
+  if (error && !/rate|limit|seconds/i.test(error.message)) return showAuthMessage(error.message);
+  showAuthMessage(error ? "Please wait a minute before asking for another email." : "If an account exists for that email, a reset link is on its way. Check your inbox and spam folder.", error ? "warning" : "success");
+};
 $("#authForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const err = $("#authError"), submit = $("#authSubmit");
-  err.hidden = true; submit.setAttribute("aria-busy", "true");
+  const submit = $("#authSubmit");
+  $("#authError").hidden = true; submit.setAttribute("aria-busy", "true");
   const email = $("#authEmail").value.trim(), password = $("#authPass").value;
+  if (recovering) {
+    const { error } = await sb.auth.updateUser({ password });
+    submit.removeAttribute("aria-busy");
+    if (error) return showAuthMessage(error.message);
+    recovering = false; $("#authPass").value = ""; $("#authDialog").close(); toast("Password updated");
+    return;
+  }
   const { data, error } = signingUp ? await sb.auth.signUp({ email, password }) : await sb.auth.signInWithPassword({ email, password });
   submit.removeAttribute("aria-busy");
-  if (error) { err.textContent = error.message; err.hidden = false; return; }
-  if (signingUp && !data.session) { err.className = "alert alert--warning"; err.textContent = "Check your email to confirm your account, then sign in."; err.hidden = false; return; }
+  if (error) return showAuthMessage(error.message);
+  if (signingUp && !data.session) return showAuthMessage("Check your email to confirm your account, then sign in.", "warning");
   $("#authDialog").close();
   toast(signingUp ? "Account created" : "Signed in");
 });
@@ -2822,6 +2852,8 @@ function routeInner() {
   if ((m = h.match(/^#\/find-artist\/(.+)$/))) return resolveArtist(decodeURIComponent(m[1]));
   if ((m = h.match(/^#\/find\/([^/]+)\/(.+)$/))) return resolveFind(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
   if ((m = h.match(/^#\/genre\/([a-z-]+)/))) return renderGenre(m[1]);
+  // Links from sign-up and reset emails come back with the session in the hash. Show the home page while it is processed.
+  if (/^#(access_token|error|type=)/.test(h)) return renderHome();
   if (h === "#/feed") return renderFeed();
   if (h === "#/notifications") return renderNotifications();
   if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})\/year\/(\d{4})$/i))) return renderRecap(m[1].toLowerCase(), m[2]);
@@ -2860,7 +2892,8 @@ $("#tabbar").innerHTML = [["discover", "#/", "Discover", "compass"], ["explore",
     const { data } = await sb.auth.getSession();
     user = data.session?.user || null;
     await loadProfile();
-    sb.auth.onAuthStateChange((_e, session) => {
+    sb.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") setTimeout(openRecovery, 0);
       const changed = (session?.user?.id || null) !== (user?.id || null);
       user = session?.user || null;
       // Deferred: calling Supabase from inside this callback can deadlock the auth client

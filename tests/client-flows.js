@@ -165,6 +165,27 @@
   check("a refused report shows the reason and stays open", /own content/.test(document.querySelector("dialog[open] #rpError")?.textContent || ""));
   document.querySelector("dialog[open] [data-close]")?.click();
 
+  /* ---- password reset (the auth client is stubbed: no email is sent) ---- */
+  const authCalls = [];
+  sb.auth.resetPasswordForEmail = async (email, opts) => { authCalls.push({ fn: "reset", email, opts }); return { error: null }; };
+  sb.auth.updateUser = async (u) => { authCalls.push({ fn: "update", u }); return { error: null }; };
+  openAuth(); await wait(200);
+  document.querySelector("#authForgot").click(); await wait(200);
+  check("Forgot password without an email asks for one and sends nothing", /Enter your email/.test(document.querySelector("#authError").textContent) && authCalls.length === 0);
+  document.querySelector("#authEmail").value = "someone@example.com";
+  document.querySelector("#authForgot").click(); await wait(300);
+  check("Forgot password requests a reset to this site", authCalls[0]?.fn === "reset" && authCalls[0].email === "someone@example.com" && authCalls[0].opts.redirectTo.startsWith(location.origin), JSON.stringify(authCalls[0]));
+  check("the confirmation never says whether the account exists", /If an account exists/.test(document.querySelector("#authError").textContent) && document.querySelector("#authError").classList.contains("alert--success"));
+  document.querySelector("#authClose").click();
+  openRecovery(); await wait(200);
+  check("recovery mode hides the email field and the sign-up toggle", document.querySelector("#authEmailField").hidden && document.querySelector("#authToggle").hidden && document.querySelector("#authTitle").textContent === "Choose a new password");
+  document.querySelector("#authPass").value = "a-new-password";
+  document.querySelector("#authForm").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true })); await wait(400);
+  check("saving a new password calls updateUser and closes the dialog", authCalls.at(-1)?.fn === "update" && authCalls.at(-1).u.password === "a-new-password" && !document.querySelector("#authDialog").open);
+  openAuth(); await wait(100);
+  check("opening sign-in afterwards restores the normal form", !document.querySelector("#authEmailField").hidden && document.querySelector("#authTitle").textContent === "Sign in");
+  document.querySelector("#authClose").click();
+
   const fails = results.filter((r) => r.startsWith("FAIL")).length;
   results.forEach((r) => console.log(r));
   console.log(fails ? `${fails} FAILED` : `All ${results.length} checks passed`);
