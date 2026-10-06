@@ -677,3 +677,35 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.recs_from_similar_listeners(int) from public, anon;
 grant execute on function public.recs_from_similar_listeners(int) to authenticated;
+-- v10: search (run in the Supabase SQL editor). Typo-tolerant, accent-insensitive search over Rotation's own albums.
+-- Safe to re-run. It adds two extensions, one generated column on albums, one index and one function; it changes no existing data.
+create extension if not exists pg_trgm with schema extensions;
+create extension if not exists unaccent with schema extensions;
+
+-- Lowercase, strip accents and punctuation, drop a leading The/A/An. Mirrors normText() in lib.js, so "Beyoncé" and "beyonce" match.
+-- IMMUTABLE (required to index it) because it always calls unaccent with the fixed 'unaccent' dictionary.
+create or replace function public.search_norm(t text) returns text
+language sql immutable parallel safe set search_path = public, extensions as $$
+  select btrim(regexp_replace(regexp_replace(lower(unaccent('unaccent', coalesce(t, ''))), '[^a-z0-9]+', ' ', 'g'), '^(the|a|an) (.)', '\2'))
+$$;
+
+-- Precomputed on write by Postgres; nothing to refresh. albums only holds albums someone rated or saved, so it stays small.
+alter table public.albums add column if not exists search_text text generated always as (public.search_norm(coalesce(title, '') || ' ' || coalesce(artist, ''))) stored;
+create index if not exists albums_search_trgm_idx on public.albums using gin (search_text extensions.gin_trgm_ops);
+create index if not exists ratings_album_idx on public.ratings (album_id);
+
+-- Rotation's own matches with community rating counts (counts come from the album_catalog view, so RLS on ratings doesn't hide them).
+-- Returns only what album_catalog already shows everyone.
+create or replace function public.search_albums(q text, lim int default 8)
+returns table (album_id text, title text, artist text, artist_id text, cover_url text, release_date text, album_type text, rating_count int, sim real)
+language sql stable set search_path = public, extensions as $$
+  with n as (select public.search_norm(q) as t)
+  select a.id, a.title, a.artist, a.artist_id, a.cover_url, a.release_date, a.album_type, coalesce(c.rating_count, 0)::int,
+         greatest(similarity(a.search_text, n.t), word_similarity(n.t, a.search_text))::real as sim
+  from public.albums a cross join n
+  left join public.album_catalog c on c.album_id = a.id
+  where length(n.t) >= 2 and (a.search_text % n.t or n.t <% a.search_text or a.search_text like '%' || n.t || '%')
+  order by sim desc, coalesce(c.rating_count, 0) desc
+  limit least(greatest(coalesce(lim, 8), 1), 25)
+$$;
+grant execute on function public.search_albums(text, int) to anon, authenticated;
