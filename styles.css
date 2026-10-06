@@ -14,7 +14,8 @@
   --raised-hover: #29292C;       /* hover on raised */
   --border: #2A2A2D;
   --border-strong: #3A3A3E;
-  --border-hover: #4B4B50;       /* input hover */
+  --border-hover: #8A8A90;       /* input hover */
+  --border-control: #6B6B71;     /* edges of form controls and the score picker: 3:1 against every surface they sit on */
 
   /* Text */
   --text: #F2EFEA;
@@ -40,7 +41,7 @@
   --warning-soft: var(--accent-soft);
 
   /* Score ramp, cool to hot. Use scoreTone() in lib.js to pick one; the number is always printed too. */
-  --score-low: #7C8AA5;          /* 1-4 */
+  --score-low: #8493AE;          /* 1-4 (spec #7C8AA5, lightened to reach 4.5:1 as text on the score chip) */
   --score-mid: #B8A57A;          /* 5-6 */
   --score-high: #F2A93B;         /* 7-8 */
   --score-top: #FF7A45;          /* 9-10 */
@@ -111,11 +112,11 @@
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #F6F2EA; --surface: #FFFFFF; --raised: #FBF8F2; --raised-hover: #EFE9DD;
-  --border: #E3DCCD; --border-strong: #CFC6B4; --border-hover: #B9AF9B;
+  --border: #E3DCCD; --border-strong: #CFC6B4; --border-hover: #6F695B; --border-control: #8A8372;
   --text: #1B1A18; --text-muted: #5E5A52; --text-faint: #8E897F;
-  --accent: #C77F0A; --accent-hover: #AE6D05; --accent-pressed: #945C03; --on-accent: #FFFFFF;
-  --success: #1E7F54; --error: #C23B3B; --info: #2A6BC4;
-  --score-low: #55638A; --score-mid: #7E6A33; --score-high: #A86A05; --score-top: #C2491A;
+  --accent: #8A5200; --accent-hover: #6F4100; --accent-pressed: #5A3500; --on-accent: #FFFFFF;   /* spec accent #C77F0A is 2.9:1 on the light page; darkened to pass 4.5:1 */
+  --success: #17694A; --error: #B02F2F; --info: #1F5AAB;
+  --score-low: #4A5878; --score-mid: #6B5A28; --score-high: #8A5200; --score-top: #A83A10;
   --scrim: rgb(20 18 14 / 0.45);
 }
 /* ==========================================================================
@@ -251,7 +252,7 @@ svg { flex: none; }
 .input, .textarea {
   width: 100%; height: 44px; padding: 0 var(--s-3);
   background: var(--surface-2); color: var(--text);
-  border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  border: 1px solid var(--border-control); border-radius: var(--r-md);
   font-size: 1rem; /* 16px avoids iOS zoom */
   transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
@@ -266,7 +267,7 @@ svg { flex: none; }
 .input--search::-webkit-search-cancel-button { filter: invert(0.7); }
 .search--hero { max-width: 560px; }
 .search--hero .search__icon { left: var(--s-4); width: 20px; height: 20px; }
-.search--hero .input--search { height: 54px; padding-left: 48px; background: var(--surface-2); border-color: var(--border-strong); }
+.search--hero .input--search { height: 54px; padding-left: 48px; background: var(--surface-2); border-color: var(--border-control); }
 
 /* ==========================================================================
    Dropdown menus
@@ -363,7 +364,7 @@ svg { flex: none; }
 .rating-stat { display: grid; gap: var(--s-1); }
 .picker { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; }
 .picker button {
-  height: 40px; border-radius: var(--r-sm); border: 1px solid var(--border-strong); background: var(--surface-2);
+  height: 40px; border-radius: var(--r-sm); border: 1px solid var(--border-control); background: var(--surface-2);
   font-weight: var(--fw-semibold); font-size: var(--fs-sm); cursor: pointer;
   transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
@@ -741,7 +742,7 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 .toolbar--lib .segmented { margin-left: auto; }
 .field--inline { display: block; }
 .select {
-  height: 40px; padding: 0 var(--s-8) 0 var(--s-3); border-radius: var(--r-md); border: 1px solid var(--border-strong);
+  height: 40px; padding: 0 var(--s-8) 0 var(--s-3); border-radius: var(--r-md); border: 1px solid var(--border-control);
   background: var(--surface-2); color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-medium); cursor: pointer; max-width: 100%;
 }
 .select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
