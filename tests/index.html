@@ -17,6 +17,7 @@
 <div id="summary">Running…</div>
 <div id="out"></div>
 <script src="../lib.js"></script>
+<script src="search-fixtures.js"></script>
 <script>
 const L = window.RotationLib, out = document.getElementById("out");
 let pass = 0, fail = 0;
@@ -164,6 +165,89 @@ test("stats: decades, top genres, top artists this year", () => {
   eq(s.decades.map((d) => d.label), ["70s", "90s", "2010s"]); eq(s.decadeCount, 3, "albums without a date are not counted");
   eq(s.genres[0], { name: "pop", n: 2, share: 50 }, "ties sort by name"); eq(s.withGenre, 3);
   eq(s.artists.map((a) => a.name), ["X", "Z"], "only 2026 ratings, most albums first"); eq(s.artists[0].avg, 8);
+});
+
+/* ---- search ranking ---- */
+const FX = window.SEARCH_FIXTURE;
+const rk = (q, o) => L.rankAlbums(q, FX, {}, o || {});
+const ids = (q, n = 3, o) => rk(q, o).slice(0, n).map((r) => r.id);
+test("normText: case, accents, punctuation, leading article", () => {
+  eq(L.normText("The Weeknd"), "weeknd"); eq(L.normText("BEYONCÉ"), "beyonce"); eq(L.normText("AC/DC"), "ac dc"); eq(L.normText("Guns N' Roses"), "guns n roses");
+  eq(L.normText("Mac Miller & Co"), "mac miller and co"); eq(L.normText("The"), "the", "a lone article is kept");
+});
+test("baseTitle collapses editions but not different recordings", () => {
+  eq(L.baseTitle("Fearless (Deluxe Edition)"), "fearless"); eq(L.baseTitle("Fearless - Remastered"), "fearless");
+  ok(L.baseTitle("Fearless (Taylor's Version)") !== L.baseTitle("Fearless"), "re-recordings are separate albums");
+});
+test("textScore order: exact > prefix > all words > word prefix > typo > nothing", () => {
+  const s = (t) => L.textScore("stick season", t);
+  eq(s("Stick Season"), 1);
+  ok(s("Stick Season") > s("Stick Season Live"), "exact > prefix");
+  ok(s("Stick Season Live") > s("Season of the Stick"), "prefix > words in another order");
+  ok(s("Season of the Stick") > L.textScore("stick seas", "Stick Season Live") - 0.3 && s("Season of the Stick") > 0.6, "all words, any order");
+  ok(L.textScore("dark sid", "The Dark Side of the Moon") > 0.55, "word prefix while typing");
+  ok(L.textScore("swfit", "Swift") > 0.3 && L.textScore("swfit", "Swift") < 0.6, "a typo scores, but below real word matches");
+  ok(s("Banana Boat") < 0.28, "unrelated is noise");
+});
+test("search: 'Stick Season' puts the real album first, noise behind it or gone", () => {
+  const r = rk("stick season");
+  eq(r[0].id, "ns-album");
+  const rank = (id) => r.findIndex((x) => x.id === id);
+  ok(rank("ss-piano") === -1 || rank("ss-piano") > rank("ns-album") + 1, "tribute is demoted");
+  ok(rank("ss-insect") === -1 && rank("ss-men") === -1 && rank("ss-figures") === -1, "partial-word noise is dropped, not ranked");
+  ok(rank("ss-band") > rank("ns-deluxe") || rank("ss-band") === -1, "tiny namesake behind the famous album's edition");
+});
+test("search: duplicates collapse to the original release", () => {
+  const r = rk("stick season");
+  eq(r.filter((x) => x.title.startsWith("Stick Season") && x.artist === "Noah Kahan" && x.type === "Album" && !/We'll/.test(x.title)).length, 1, "deluxe edition merged into the album");
+  eq(r.find((x) => x.id === "ns-album").date.slice(0, 4), "2022", "the original 2022 release is the one kept");
+});
+test("search: 'artist album' in either order finds the album first", () => {
+  eq(ids("kendrick gnx", 1), ["kl-gnx"]); eq(ids("gnx kendrick", 1), ["kl-gnx"]);
+  eq(ids("mac miller swimming", 1), ["mm-swim"]); eq(ids("swimming mac miller", 1), ["mm-swim"]);
+});
+test("search: accents and typos", () => {
+  eq(ids("beyonce", 1), ["by-album"], "accent-free query finds BEYONCÉ");
+  ok(!ids("beyonce", 3).includes("by-karaoke"), "karaoke never in the top 3");
+  const r = rk("taylor swfit");
+  ok(r.length > 0 && r[0].artist === "Taylor Swift", "typo still lands on Taylor Swift");
+  ok(!r.slice(0, 3).some((x) => /karaoke|megamix/i.test(x.title)), "karaoke and megamix stay out of the top 3");
+  eq(L.didYouMean("taylor swfit", r), "Taylor Swift");
+  eq(L.didYouMean("taylor swift", rk("taylor swift")), null, "a correct query gets no suggestion");
+});
+test("search: famous partial match beats an obscure exact title", () => {
+  eq(ids("dark side", 1), ["pf-dsotm"]);
+  const r = rk("dark side"); ok(r.findIndex((x) => x.id === "ds-piano") === -1 || r.findIndex((x) => x.id === "ds-piano") > r.findIndex((x) => x.id === "ds-obscure") - 1, "tribute is not above the obscure single");
+});
+test("artist card: shown for strong artists, hidden for tiny namesakes", () => {
+  const a = L.artistCard("the weeknd", rk("the weeknd")); ok(a && a.name === "The Weeknd", "The Weeknd gets a card");
+  ok(!ids("the weeknd", 3).includes("tw-piano"), "piano tribute not in top 3");
+  const k = L.artistCard("kendrick", rk("kendrick")); ok(k && k.name === "Kendrick Lamar");
+  const s = L.artistCard("stick season", rk("stick season")); ok(!s || s.name !== "Stick Season", "the 'Stick Season' band is not promoted over the famous album");
+});
+test("search: one-character and empty queries never throw", () => {
+  ok(Array.isArray(rk("a")) && Array.isArray(rk("")) && Array.isArray(rk("   ")));
+  eq(L.searchPlan("a").words, ["a"]); eq(L.searchPlan("").words, []); eq(L.searchPlan("   ").words, []);
+});
+test("signals: Rotation ratings and Billboard presence lift an album among equal text matches", () => {
+  const a = { id: "x1", title: "Echoes", artist: "Band A", date: "2019", type: "Album", secondary: [], releases: 2, tags: 1 }, b = { ...a, id: "x2", artist: "Band B" };
+  eq(L.rankAlbums("echoes", [a, b])[0].id, "x1", "tie falls back to input order only");
+  eq(L.rankAlbums("echoes", [a, b], { ratings: new Map([["x2", 40]]) })[0].id, "x2", "rated on Rotation wins");
+  eq(L.rankAlbums("echoes", [a, b], { billboard: new Map([["echoes|band b", 5]]) })[0].id, "x2", "on the chart wins");
+});
+test("weights are tunable from one object", () => {
+  const w = { ...L.SEARCH_WEIGHTS, type: { ...L.SEARCH_WEIGHTS.type, single: 80 } };
+  const at = (list, id) => list.findIndex((x) => x.id === id);
+  ok(at(L.rankAlbums("gnx", FX, {}, { weights: w }), "gnx-obscure") < at(L.rankAlbums("gnx", FX), "gnx-obscure"), "boosting singles moves the obscure single up");
+});
+test("searchPlan: every word must be in the artist or title; fuzzy only on 4+ letter words", () => {
+  const p = L.searchPlan("kendrick gnx");
+  ok(p.strict.includes("(artist:kendrick OR releasegroup:kendrick) AND (artist:gnx OR releasegroup:gnx)") && p.strict.includes("primarytype:album"));
+  ok(p.fuzzy.includes("kendrick~") && !p.fuzzy.includes("gnx~"));
+  ok(L.searchPlan("dark sid", {}, { prefix: true }).strict.includes("sid*"), "autocomplete treats the last word as a prefix");
+  ok(!L.searchPlan("the weeknd").strict.includes("artist:the "), "stop words are not required");
+  ok(!/[()"]b|b[()"]c/.test(L.searchPlan('a"b (c)').words.join("")), "Lucene syntax characters are stripped from words");
+  eq(L.splitTop(rk("stick season")).top[0].id, "ns-album");
 });
 
 document.getElementById("summary").textContent = `${pass} passed, ${fail} failed`;

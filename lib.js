@@ -178,5 +178,209 @@
     return Math.floor(rand() * Math.max(1, reachable - limit + 1));
   }
 
-  root.RotationLib = { lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  /* ---------- Search ranking ----------
+     MusicBrainz orders by its own text score, so a famous album and a 2024 TikTok single with the same title tie at 100.
+     Everything here re-ranks MusicBrainz candidates using the words typed AND how real the release is. It is pure (no network),
+     so the browser and api/search.js share it and tests/index.html can pin its behavior with fixtures. */
+
+  // ALL TUNING LIVES HERE. Final relevance = text * text + popularity points + type points - penalties.
+  // Points are on a rough 0-100 scale: a perfect text match alone is worth `text`, a very popular album can add up to ~55 more.
+  const SEARCH_WEIGHTS = {
+    text: 60,             // how well the typed words match title/artist (0..1 * this). Highest single factor so the right words always lead.
+    minText: 0.28,        // candidates matching worse than this are dropped as noise instead of ranked last
+    ratings: 7,           // * log10(1 + ratings on Rotation): albums people here actually rated beat unknown entries
+    inRotation: 8,        // flat boost for any album already in Rotation's catalog (rated or saved by someone)
+    billboard: 14,        // on this week's Billboard chart; scaled so #1 is worth full points and #50 about half
+    editions: 3,          // * log2(1 + releases in the MusicBrainz group): widely issued albums are better known (28 editions vs 1)
+    tags: 1.6,            // * log2(1 + total genre/tag votes): a rough listener-interest signal from MusicBrainz
+    artistAlbums: 2,      // artist results: * log2(1 + albums by this artist in the candidates)
+    type: { album: 14, ep: 6, live: 3, single: 2, soundtrack: 2, compilation: 2, other: 0 },   // studio albums first; singles and covers behind
+    typeChosen: 6,        // when the person picked a type filter, every result already has that type, so they are all scored equally at this
+    noise: 40,            // tribute / karaoke / piano-covers / "made famous by" records. Can still be found, just never first.
+    obscure: 12,          // one edition, no tags, not rated here, not charting: almost certainly a self-released or auto-generated entry
+    undated: 4,           // no release date at all
+    fuzzyCap: 0.6,        // a typo-tolerant match can never score above this, so exact words always win over near-misses
+    topShare: 0.55,       // results page "Top results": candidates within this share of the best score (at most topMax)
+    topMax: 10,
+    artistCardShare: 0.7, // artist card is shown when its score is at least this share of the best album score
+  };
+  const NOISE_RE = /karaoke|tribute|piano (version|rendition|cover)s?|instrumental (version|cover)s?|lullaby|made famous|originally performed|in the style of|as made|cover versions?|workout|8-bit|music box|\bai (generated|music|cover)/i;
+  const STOP = new Set(["the", "a", "an", "of", "and"]);
+
+  // Lowercase, strip accents and punctuation, "&" -> "and", drop a leading The/A/An ("The Weeknd" -> "weeknd", "Beyoncé" -> "beyonce")
+  const normText = (s) => String(s == null ? "" : s).normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/&/g, " and ").replace(/['’`]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/^(the|a|an) (?=.)/, "");
+  const words = (s) => normText(s).split(" ").filter(Boolean);
+  // Title key for collapsing duplicates: "Fearless (Deluxe Edition)" and "Fearless - Remastered" are the same album as "Fearless"
+  const EDITION = "deluxe|remaster(?:ed)?|expanded|anniversary|edition|bonus|special|collector'?s|reissue|\\d{4} version|super deluxe";
+  const baseTitle = (s) => normText(String(s || "").replace(new RegExp(`\\s*[\\(\\[][^)\\]]*(?:${EDITION})[^)\\]]*[\\)\\]]`, "ig"), "").replace(new RegExp(`\\s+-\\s+[^-]*(?:${EDITION}).*$`, "i"), ""));
+
+  function editDistance(a, b) {   // Damerau-Levenshtein (a swap of two neighbors costs 1, so "swfit" is 1 away from "swift")
+    const m = a.length, n = b.length;
+    if (!m || !n) return Math.max(m, n);
+    const d = Array.from({ length: m + 1 }, (_, i) => { const r = new Array(n + 1).fill(0); r[0] = i; return r; });
+    for (let j = 0; j <= n; j++) d[0][j] = j;
+    for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+    return d[m][n];
+  }
+  const closeness = (a, b) => (a === b ? 1 : 1 - editDistance(a, b) / Math.max(a.length, b.length));
+
+  // How well does the typed `query` match `target`? 0..1. exact title > prefix > all words > word prefixes > typo-tolerant.
+  function textScore(query, target) {
+    const nq = normText(query), nt = normText(target);
+    if (!nq || !nt) return 0;
+    if (nq === nt) return 1;
+    const qw = nq.split(" "), tw = nt.split(" "), lenRatio = Math.min(1, nq.length / nt.length);
+    if (nt.startsWith(nq + " ") || nt.startsWith(nq)) return 0.84 + 0.1 * lenRatio;                 // "stick season" in "stick season live"
+    if (qw.every((w) => tw.includes(w))) return 0.68 + 0.14 * lenRatio;                              // every word, any order
+    if (qw.every((w, i) => (i < qw.length - 1 ? tw.includes(w) : tw.some((t) => t.startsWith(w))))) return 0.58 + 0.12 * lenRatio;   // "dark sid" -> "dark side of the moon"
+    // typo tolerant: every typed word must be close to some target word (short words must match exactly)
+    let sum = 0;
+    for (const w of qw) {
+      let best = 0;
+      for (const t of tw) { const c = w.length <= 3 || t.length <= 3 ? (w === t ? 1 : 0) : closeness(w, t); if (c > best) best = c; }
+      if (best < 0.7) return Math.min(SEARCH_WEIGHTS.fuzzyCap * closeness(nq, nt), 0.25);
+      sum += best;
+    }
+    return Math.min(SEARCH_WEIGHTS.fuzzyCap, (sum / qw.length) * 0.62 * (0.8 + 0.2 * lenRatio));
+  }
+  // The query may be "artist album" or "album artist": try every split of its words in both orders.
+  function matchText(query, { title, artist }) {
+    let best = { score: textScore(query, title), kind: "title" };
+    const a = textScore(query, artist) * 0.82;      // an artist-only query matches all their albums, but below an exactly titled album
+    if (a > best.score) best = { score: a, kind: "artist" };
+    const qw = normText(query).split(" ");
+    for (let i = 1; i < qw.length; i++) {
+      const left = qw.slice(0, i).join(" "), right = qw.slice(i).join(" ");
+      for (const [pa, pt] of [[left, right], [right, left]]) {
+        const sa = textScore(pa, artist), st = textScore(pt, title);
+        if (sa < 0.5 || st < 0.5) continue;
+        const s = Math.sqrt(sa * st) * 0.99;
+        if (s > best.score) best = { score: s, kind: "artist+title" };
+      }
+    }
+    return best;
+  }
+
+  // Release-group types as MusicBrainz reports them -> one simple kind
+  function kindOf(c) {
+    const p = String(c.type || c.primary || "").toLowerCase(), s = (c.secondary || []).map((x) => String(x).toLowerCase());
+    if (s.includes("soundtrack")) return "soundtrack";
+    if (s.includes("compilation")) return "compilation";
+    if (s.includes("live")) return "live";
+    if (s.length) return "other";
+    return p === "album" ? "album" : p === "ep" ? "ep" : p === "single" ? "single" : "other";
+  }
+  // MusicBrainz release-group (search result) -> candidate
+  const candidateOf = (g) => ({ id: g.id, title: g.title, artist: g.artist || (g["artist-credit"] || []).map((c) => c.name + (c.joinphrase || "")).join(""),
+    artistId: g.artistId || (g["artist-credit"] || [])[0]?.artist?.id || null, date: g.date || g["first-release-date"] || "", type: g.type || g["primary-type"] || "", secondary: g.secondary || g["secondary-types"] || [],
+    releases: g.releases == null ? 0 : Array.isArray(g.releases) ? g.releases.length : g.releases, tags: g.tags == null ? 0 : Array.isArray(g.tags) ? g.tags.reduce((s, t) => s + (t.count || 0), 0) : g.tags,
+    disambiguation: g.disambiguation || "" });
+
+  // signals: { ratings: Map(id -> count on Rotation), rotation: Set(id), billboard: Map(baseTitle|artist -> rank) }; opts: { typeChosen, weights }
+  function scoreCandidate(query, c, signals = {}, opts = {}) {
+    const W = opts.weights || SEARCH_WEIGHTS, m = matchText(query, c), kind = c.kind || kindOf(c);
+    const n = (signals.ratings && signals.ratings.get(c.id)) || c.rating_count || 0;
+    const known = n > 0 || (signals.rotation && signals.rotation.has(c.id)) || !!c.inRotation;
+    const bb = signals.billboard && signals.billboard.get(baseTitle(c.title) + "|" + normText(c.artist));
+    let s = m.score * W.text;
+    s += W.ratings * Math.log10(1 + n) + (known ? W.inRotation : 0);
+    if (bb) s += W.billboard * (1 - ((bb - 1) / 200));
+    s += W.editions * Math.log2(1 + (c.releases || 0)) + W.tags * Math.log2(1 + (c.tags || 0));
+    s += opts.typeChosen ? W.typeChosen : (W.type[kind] ?? 0);
+    const noisy = NOISE_RE.test(`${c.title} ${c.artist}`) && !NOISE_RE.test(query);
+    if (noisy) s -= W.noise;
+    if (!known && !bb && (c.releases || 0) <= 1 && !(c.tags || 0)) s -= W.obscure;
+    if (!c.date) s -= W.undated;
+    return { relevance: Math.round(s * 10) / 10, text: m.score, textKind: m.kind, kind, noisy, known, billboard: bb || null };
+  }
+  // Same artist + same base title + same kind (album, single, EP...) is one release: keep the original (known to Rotation first,
+  // then earliest release, then best score). A single and the album that share a name stay separate, ranked by type.
+  function collapseDuplicates(list) {
+    const groups = new Map();
+    for (const r of list) {
+      const k = normText(r.artist) + "|" + baseTitle(r.title) + "|" + r.kind;
+      const g = groups.get(k);
+      if (!g) { groups.set(k, r); continue; }
+      const better = (x, y) => (x.known !== y.known ? x.known : (x.date || "9999") !== (y.date || "9999") ? (x.date || "9999") < (y.date || "9999") : x.relevance >= y.relevance);
+      const keep = better(r, g) ? r : g;
+      groups.set(k, { ...keep, releases: Math.max(r.releases || 0, g.releases || 0), tags: Math.max(r.tags || 0, g.tags || 0), relevance: Math.max(r.relevance, g.relevance) });
+    }
+    return [...groups.values()];
+  }
+  function rankAlbums(query, candidates, signals = {}, opts = {}) {
+    const W = opts.weights || SEARCH_WEIGHTS;
+    const scored = candidates.filter((c) => c && c.title).map((c) => ({ ...c, ...scoreCandidate(query, c, signals, opts) })).filter((r) => r.text >= W.minText);
+    return collapseDuplicates(scored).sort((a, b) => b.relevance - a.relevance || (b.releases || 0) - (a.releases || 0) || String(a.date).localeCompare(String(b.date)));
+  }
+  // Artists come from the albums themselves, so a tiny namesake with one obscure single can't outrank a famous album.
+  function rankArtists(query, ranked, signals = {}, opts = {}) {
+    const W = opts.weights || SEARCH_WEIGHTS, by = new Map();
+    for (const r of ranked) {
+      const k = normText(r.artist); if (!k) continue;
+      const x = by.get(k) || { name: r.artist, id: r.artistId, albums: 0, best: 0, tags: 0, known: false };
+      x.albums++; x.best = Math.max(x.best, r.relevance); x.tags = Math.max(x.tags, r.tags || 0); x.known = x.known || r.known || !!r.billboard;
+      if (!x.id && r.artistId) x.id = r.artistId;
+      by.set(k, x);
+    }
+    return [...by.values()].map((x) => {
+      const text = textScore(query, x.name);
+      const pop = W.artistAlbums * Math.log2(1 + x.albums) + W.tags * Math.log2(1 + x.tags) + (x.known ? W.inRotation : 0);
+      return { ...x, text, relevance: Math.round((text * W.text + pop) * 10) / 10 };
+    }).filter((x) => x.text >= 0.6 && x.id).sort((a, b) => b.relevance - a.relevance);
+  }
+  // The artist card above the albums, only when the artist is about as strong as the best album
+  function artistCard(query, ranked, signals = {}, opts = {}) {
+    const W = opts.weights || SEARCH_WEIGHTS, a = rankArtists(query, ranked, signals, opts)[0];
+    if (!a || a.text < 0.85) return null;
+    const top = ranked[0];
+    return !top || a.relevance >= top.relevance * W.artistCardShare ? a : null;
+  }
+  // Results page split: "Top results" (clearly relevant) then the rest
+  function splitTop(ranked, weights = SEARCH_WEIGHTS) {
+    if (!ranked.length) return { top: [], more: [] };
+    const floor = ranked[0].relevance * weights.topShare;
+    const top = ranked.filter((r, i) => i < weights.topMax && r.relevance >= floor);
+    return { top, more: ranked.slice(top.length) };
+  }
+  // "Did you mean": the best result's artist or title when the query only matched it through typo tolerance
+  function didYouMean(query, ranked) {
+    const top = ranked[0], nq = normText(query);
+    if (!top || top.text >= 0.9 || !nq) return null;
+    const options = [top.artist, top.title].filter((o) => normText(o) !== nq);
+    const cands = options.map((o) => ({ o, s: Math.max(closeness(nq, normText(o)), textScore(query, o)) })).sort((a, b) => b.s - a.s);
+    return cands[0] && cands[0].s >= 0.45 ? cands[0].o : null;
+  }
+
+  // Query plan for MusicBrainz. Every typed word must appear in the ARTIST or the TITLE, so "kendrick gnx" and "gnx kendrick" both work.
+  // `strict` is exact words (last word as a prefix while typing); `fuzzy` adds ~ to words of 4+ letters to survive typos.
+  function searchPlan(term, f = {}, { prefix = false } = {}) {
+    const ws = String(term || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean);
+    const core = ws.filter((w) => !STOP.has(w.toLowerCase()));
+    const use = core.length ? core : ws;
+    const clause = (fuzzy) => use.map((w, i) => {
+      const t = fuzzy && w.length >= 4 ? `${w}~` : prefix && i === use.length - 1 && w.length >= 2 ? `${w}*` : w;
+      return `(artist:${t} OR releasegroup:${t})`;
+    }).join(" AND ");
+    const filters = filterClauses(f);
+    const wrap = (c) => [c ? `(${c})` : "", ...filters].filter(Boolean).join(" AND ");
+    const phrase = ws.length > 1 ? ` OR releasegroup:"${lucene(ws.join(" "))}"^4` : "";
+    return { strict: wrap(use.length ? clause(false) + phrase : ""), fuzzy: wrap(use.length ? clause(true) : ""), words: use };
+  }
+  function filterClauses(f = {}) {
+    const parts = [], t = f.type || "album";
+    if (["album", "ep", "single"].includes(t)) parts.push(`primarytype:${t}`);
+    else if (t !== "any") parts.push(`primarytype:album AND secondarytype:${t}`);
+    if (f.from || f.to) parts.push(`firstreleasedate:[${f.from || "0000"} TO ${f.to || "9999"}]`);
+    if (f.genre) parts.push(`tag:"${lucene(f.genre)}"`);
+    if (f.artist) parts.push(`artist:"${lucene(f.artist)}"`);
+    return parts;
+  }
+
+  root.RotationLib = { SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
+// api/search.js shares the same ranking code as the browser
+if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;
