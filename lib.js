@@ -442,6 +442,8 @@
     const parts = [], t = f.type || "album";
     if (["album", "ep", "single"].includes(t)) parts.push(`primarytype:${t}`);
     else if (t !== "any") parts.push(`primarytype:album AND secondarytype:${t}`);
+    // "Albums" means studio albums: live recordings (a long tail of bootlegs), compilations, soundtracks and remixes have their own types
+    if (t === "album") parts.push("NOT secondarytype:(live OR compilation OR soundtrack OR remix OR demo OR spokenword OR interview OR audiobook OR mixtape)");
     if (f.from || f.to) parts.push(`firstreleasedate:[${f.from || "0000"} TO ${f.to || "9999"}]`);
     if (f.genre) parts.push(`tag:"${lucene(f.genre)}"`);
     if (f.artist) parts.push(`artist:"${lucene(f.artist)}"`);

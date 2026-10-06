@@ -234,6 +234,11 @@ test("results page: 'Top results' holds only real records; obscure and cover-sty
   ok(more.some((r) => r.id === "mn-violin") && more.every((r) => !top.includes(r)), "they are still findable under More");
   eq(L.splitTop([{ relevance: 10, obscure: true }, { relevance: 9, obscure: true }]).top.length, 2, "when nothing established matches, still show the best few");
 });
+test("'Albums' excludes live, compilation, soundtrack and remix releases; other types don't", () => {
+  ok(L.searchPlan("nirvana ne", {}, { prefix: true }).strict.includes("NOT secondarytype:(live OR compilation"), "default type is studio albums");
+  ok(!L.searchPlan("nirvana", { type: "live" }).strict.includes("NOT secondarytype"), "the Live type still finds live albums");
+  ok(!L.searchPlan("nirvana", { type: "any" }).strict.includes("NOT secondarytype"), "All types excludes nothing");
+});
 test("fewer upstream requests: no retry for a clear hit, no sweep when artist and album were both typed", () => {
   ok(!L.needsFuzzy(rk("kendrick gnx")) && L.needsFuzzy(rk("taylor swfit")) && L.needsFuzzy([]));
   ok(!L.isWeakPool(FX, "mac miller swimming"), "artist + exact album typed: unambiguous");

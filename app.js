@@ -541,7 +541,9 @@ async function runSearch(term, f, { limit = 50, offset = 0, prefix = false, sign
   const cands = [...byId.values()];
   const signals = { ratings: await ratingSignals(cands.map((c) => c.id)), billboard: bb, rotation: new Set(rot.map((r) => r.id)) };
   const opts = { typeChosen: !!f.type && f.type !== "any" };
-  const ranked = RL.rankAlbums(term, cands, signals, opts);
+  // a chosen type means that type: Rotation's own entries follow the same rule as the MusicBrainz query
+  const want = f.type && f.type !== "any" ? f.type : null;
+  const ranked = RL.rankAlbums(term, cands, signals, opts).filter((r) => !want || r.kind === want);
   return { ranked, signals, opts, rawCount: groups.length, card: offset === 0 ? RL.artistCard(term, ranked, signals, opts) : null, did: offset === 0 ? RL.didYouMean(term, ranked) : null };
 }
 const KIND_LABEL = { ep: "EP", single: "Single", live: "Live album", soundtrack: "Soundtrack", compilation: "Compilation", other: "Other" };
