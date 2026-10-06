@@ -49,6 +49,13 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Taste comparison (`#/compare/<user>`) needs 10+ shared ratings before any similarity % is shown; genre overlap needs 8+ rated albums with genres each.
 - Year in Rotation (`#/year/<y>`, `#/u/<name>/year/<y>`) uses `first_rated_at` (not edit time), only real ratings, and says it is not listening time.
   The PNG export is drawn on a canvas as text and charts only: album artwork is never copied into exported files (rights holders' artwork).
+- Search (`#/search/<term>?type=&from=&to=&genre=&artist=`): candidates come from `api/search.js` (MusicBrainz with a real User-Agent, queued 1.1 s apart, edge-cached 1 h),
+  plus Rotation's own albums via RPC `search_albums` (schema v10: pg_trgm + unaccent + `albums.search_text` trigram index; missing RPC = no extra hits).
+  Ranking is `RL.rankAlbums` in lib.js: text match (exact > prefix > all words > word prefix > typo), Rotation ratings, Billboard-200 presence, MusicBrainz edition/tag counts,
+  release type, noise/obscurity penalties, duplicate collapse (same artist + base title + kind). ALL weights live in `RL.SEARCH_WEIGHTS`; change them there and run tests/index.html.
+  Every typed word must be in the artist OR the title (`searchPlan`), so "artist album" works in either order; a fuzzy retry runs on weak results and a tagged-albums sweep runs when
+  nothing established matches ("dark side"). The browser falls back to calling MusicBrainz directly if `/api/search` is down. The type filter is remembered in localStorage but the URL always carries it.
+  Autocomplete is an ARIA combobox on every search box; "/" opens an overlay on pages without one. Don't show raw MusicBrainz match counts (they are fuzzy noise).
 - Stats dashboard (`#/stats`, `renderStats`; linked from the account menu and the shelf header): listening-diary heatmap (12 months, counted by `first_rated_at`,
   never called listening time), decades (from `albums.release_date`), top-5 genre donut, top 3 artists of the current year, and "You might like" (same `buildRecs`
   engine and sessionStorage cache as the home page). Pure logic is `RL.statsOf` / `heatmapOf` / `heatLevel` (tested). Charts are hand-rolled SVG/CSS: no chart library,

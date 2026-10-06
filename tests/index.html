@@ -248,6 +248,11 @@ test("searchPlan: every word must be in the artist or title; fuzzy only on 4+ le
   ok(!L.searchPlan("the weeknd").strict.includes("artist:the "), "stop words are not required");
   ok(!/[()"]b|b[()"]c/.test(L.searchPlan('a"b (c)').words.join("")), "Lucene syntax characters are stripped from words");
   eq(L.splitTop(rk("stick season")).top[0].id, "ns-album");
+  ok(L.searchPlan("dark side").tagged.includes("tag:rock") && !L.searchPlan("stick").strict.includes("tag:rock"), "tagged sweep query exists but is separate from the normal one");
+  ok(L.isWeakPool([{ title: "Dark Side", artist: "Nobody", releases: 1, tags: 0 }], "dark side") && !L.isWeakPool([{ title: "Stick Season", artist: "Noah Kahan", releases: 14, tags: 12 }], "stick season"), "a pool with an established, well-matching album needs no sweep");
+  ok(L.isWeakPool([{ title: "Greatest Hits", artist: "Famous Band", releases: 40, tags: 30 }], "dark side"), "a popular album that doesn't match the words doesn't count");
+  const typo = rk("taylor swfit"), card = L.artistCard("taylor swfit", typo, {}, {});
+  ok(card && card.name === "Taylor Swift", "a typo in a famous name still earns the artist card");
 });
 
 document.getElementById("summary").textContent = `${pass} passed, ${fail} failed`;

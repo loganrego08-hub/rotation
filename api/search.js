@@ -62,8 +62,19 @@ module.exports = async (req, res) => {
         fuzzy = true;
       }
     }
+    // Nothing established in the first page ("dark side" returns thousands of obscure titles): sweep tagged albums, 2 pages of 100
+    let swept = false;
+    if (offset === 0 && !prefix && q && plan.tagged && RL.isWeakPool(groups, q)) {
+      const seen = new Set(groups.map((g) => g.id));
+      for (const off of [0, 100]) {
+        const more = await fetchGroups(plan.tagged, 100, off).catch(() => []);
+        groups = groups.concat(more.filter((g) => !seen.has(g.id) && seen.add(g.id)));
+        if (more.length < 100) break;
+      }
+      swept = true;
+    }
     res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
-    return res.status(200).json({ groups, fuzzy });
+    return res.status(200).json({ groups, fuzzy, swept });
   } catch (e) {
     res.setHeader("Cache-Control", "no-store");
     return res.status(502).json({ error: "Search is unavailable right now" });

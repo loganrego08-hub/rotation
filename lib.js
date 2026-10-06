@@ -249,6 +249,7 @@
   }
   // The query may be "artist album" or "album artist": try every split of its words in both orders.
   function matchText(query, { title, artist }) {
+    if (!normText(query)) return { score: 1, kind: "filter" };   // filters only, no typed words: everything matches, popularity orders it
     let best = { score: textScore(query, title), kind: "title" };
     const a = textScore(query, artist) * 0.82;      // an artist-only query matches all their albums, but below an exactly titled album
     if (a > best.score) best = { score: a, kind: "artist" };
@@ -326,8 +327,10 @@
       if (!x.id && r.artistId) x.id = r.artistId;
       by.set(k, x);
     }
+    const nq = normText(query);
     return [...by.values()].map((x) => {
-      const text = textScore(query, x.name);
+      // a typo in a name ("taylor swfit") is still that artist when the whole name is nearly identical
+      const near = closeness(nq, normText(x.name)), text = Math.max(textScore(query, x.name), near >= 0.85 ? near * 0.95 : 0);
       const pop = W.artistAlbums * Math.log2(1 + x.albums) + W.tags * Math.log2(1 + x.tags) + (x.known ? W.inRotation : 0);
       return { ...x, text, relevance: Math.round((text * W.text + pop) * 10) / 10 };
     }).filter((x) => x.text >= 0.6 && x.id).sort((a, b) => b.relevance - a.relevance);
@@ -368,8 +371,15 @@
     const filters = filterClauses(f);
     const wrap = (c) => [c ? `(${c})` : "", ...filters].filter(Boolean).join(" AND ");
     const phrase = ws.length > 1 ? ` OR releasegroup:"${lucene(ws.join(" "))}"^4` : "";
-    return { strict: wrap(use.length ? clause(false) + phrase : ""), fuzzy: wrap(use.length ? clause(true) : ""), words: use };
+    // `tagged` only returns albums people have tagged with a mainstream genre, which drops the thousands of untagged, auto-generated entries
+    const tagged = wrap(use.length ? `${clause(false)} AND ${TAGGED}` : "");
+    return { strict: wrap(use.length ? clause(false) + phrase : ""), fuzzy: wrap(use.length ? clause(true) : ""), tagged, words: use };
   }
+  const TAGGED = '(tag:rock OR tag:pop OR tag:electronic OR tag:jazz OR tag:"hip hop" OR tag:metal OR tag:folk OR tag:indie OR tag:soul OR tag:punk OR tag:alternative OR tag:classical OR tag:country OR tag:blues OR tag:funk OR tag:reggae)';
+  // MusicBrainz orders by text only, so for a short ambiguous query ("dark side") the famous album can sit past the first 50 hits.
+  // When nothing in the first page looks established, the caller runs a second pass over tagged albums (2 pages of 100).
+  // "Established" = 12+ editions (tag votes alone are easy to inflate on obscure entries) AND the title/artist really matches the words typed.
+  const isWeakPool = (groups, query = "") => !groups.some((g) => (g.releases || 0) >= 12 && matchText(query, g).score >= 0.7);
   function filterClauses(f = {}) {
     const parts = [], t = f.type || "album";
     if (["album", "ep", "single"].includes(t)) parts.push(`primarytype:${t}`);
@@ -380,7 +390,7 @@
     return parts;
   }
 
-  root.RotationLib = { SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  root.RotationLib = { SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
 // api/search.js shares the same ranking code as the browser
 if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;

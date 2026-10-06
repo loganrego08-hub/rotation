@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Rotation search regression</title><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; background: #171717; color: #f1efe9; margin: 0; padding: 24px; max-width: 1100px; }
+  h1 { font-size: 20px; } code { background: #2a2a2a; padding: 1px 5px; border-radius: 4px; }
+  #summary { font-weight: 600; margin: 12px 0 20px; }
+  .q { border: 1px solid #3a3a38; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  .q.pass { border-left: 4px solid #5ecfb1; } .q.fail { border-left: 4px solid #f07d73; }
+  .q h2 { font-size: 15px; margin: 0 0 6px; } .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  ol { margin: 4px 0 0; padding-left: 20px; color: #b3b0a8; } ol li.hit { color: #b9f36b; font-weight: 600; }
+  .t { color: #9a978f; font-size: 12px; }
+  @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+</style></head>
+<body>
+<h1>Search regression: before and after</h1>
+<p>Runs real queries against live MusicBrainz (about 1 request per second, so this takes under a minute) and asserts the expected album is first.
+  <b>Before</b> = MusicBrainz's own order with the old query. <b>After</b> = <code>api/search.js</code> (loaded and run here) + <code>lib.js</code> ranking.
+  Results are live, so a failure can also mean MusicBrainz data changed; the deterministic version is <code>tests/index.html</code>.
+  Rotation ratings and Billboard signals are not used here (they need the live site), so real results can only be better.</p>
+<div id="summary">Running…</div><div id="out"></div>
+<script src="../lib.js"></script>
+<script>
+const L = window.RotationLib, MB = "https://musicbrainz.org/ws/2", out = document.getElementById("out");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let last = 0;
+async function mb(url) {   // throttle for the "before" calls; api/search.js throttles its own
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const wait = last + 1500 - Date.now(); if (wait > 0) await sleep(wait); last = Date.now();
+    const r = await fetch(url); if (r.status === 503) { await sleep(2500); continue; }
+    if (!r.ok) throw new Error("HTTP " + r.status); return r.json();
+  }
+  throw new Error("MusicBrainz is busy (503)");
+}
+// Load the real serverless function and run it in the browser (User-Agent cannot be set from a browser, so it is dropped)
+async function loadHandler() {
+  const code = await (await fetch("../api/search.js")).text();
+  const mod = { exports: {} };
+  const f = (u, o) => { const { headers, ...rest } = o || {}; return fetch(u, rest); };
+  new Function("require", "module", "process", "fetch", code)(() => L, mod, { env: {} }, f);
+  return mod.exports;
+}
+const call = async (handler, params) => {
+  let status = 200, body = null; const headers = {};
+  await handler({ query: params }, { setHeader: (k, v) => (headers[k] = v), status(c) { status = c; return this; }, json(b) { body = b; return this; } });
+  return { status, body, headers };
+};
+const label = (g) => `${g.title} — ${g.artist}${g.date ? " (" + String(g.date).slice(0, 4) + ")" : ""}`;
+const n = L.normText;
+const CASES = [
+  { q: "stick season", expect: (r) => n(r.title) === "stick season" && r.artist === "Noah Kahan" },
+  { q: "kendrick gnx", expect: (r) => n(r.title) === "gnx" && /Kendrick Lamar/.test(r.artist) },
+  { q: "mac miller swimming", expect: (r) => n(r.title) === "swimming" && r.artist === "Mac Miller" },
+  { q: "swimming mac miller", expect: (r) => n(r.title) === "swimming" && r.artist === "Mac Miller" },
+  { q: "beyonce", expect: (r) => n(r.title) === "beyonce" && n(r.artist) === "beyonce" },
+  { q: "the weeknd", expect: (r) => n(r.artist) === "weeknd", card: "The Weeknd" },
+  { q: "dark side", expect: (r) => /dark side of the moon/i.test(r.title) && r.artist === "Pink Floyd" },
+  { q: "taylor swfit", expect: (r) => r.artist === "Taylor Swift", card: "Taylor Swift", did: "Taylor Swift" },
+  { q: "a", skip: true },   // one character: the app never searches; see isSearchable below
+];
+(async () => {
+  let pass = 0, fail = 0;
+  const handler = await loadHandler();
+  for (const c of CASES) {
+    const box = document.createElement("div"); box.className = "q";
+    if (c.skip) {
+      const ok = n(c.q).length < 2 && Array.isArray(L.rankAlbums(c.q, [])) && L.searchPlan(c.q).words.length === 1;
+      box.className += ok ? " pass" : " fail"; ok ? pass++ : fail++;
+      box.innerHTML = `<h2>“${c.q}” (1 character)</h2><div class="t">${ok ? "PASS" : "FAIL"}: no request is made (the app requires 2+ characters) and ranking an empty candidate list does not throw.</div>`;
+      out.appendChild(box); continue;
+    }
+    try {
+      const before = (await mb(`${MB}/release-group?query=${encodeURIComponent(L.albumQuery(c.q, {}))}&fmt=json&limit=24`))["release-groups"].map(L.candidateOf);
+      await sleep(1600);   // keep the function's own requests clear of the "before" request (a deployed function is throttled by itself)
+      const t0 = performance.now();
+      const res = await call(handler, { q: c.q, type: "album", limit: "50" });
+      const groups = res.body.groups, ranked = L.rankAlbums(c.q, groups, {}, { typeChosen: true });
+      const ms = Math.round(performance.now() - t0);
+      const card = L.artistCard(c.q, ranked, {}, { typeChosen: true }), did = L.didYouMean(c.q, ranked);
+      const top = ranked[0], ok = !!top && c.expect(top) && (!c.card || (card && card.name === c.card)) && (!c.did || did === c.did) && res.status === 200 && /s-maxage/.test(res.headers["Cache-Control"] || "");
+      const oldRank = before.findIndex(c.expect) + 1;
+      ok ? pass++ : fail++;
+      box.className += ok ? " pass" : " fail";
+      box.innerHTML = `<h2>“${c.q}” — ${ok ? "PASS" : "FAIL"}</h2>
+        <div class="t">before: expected album at rank ${oldRank || "not in top 24"} · after: rank ${ranked.findIndex(c.expect) + 1 || "missing"} · function + ranking ${ms} ms (includes MusicBrainz throttle) · ${res.body.fuzzy ? "typo-tolerant retry used · " : ""}${card ? "artist card: " + card.name : "no artist card"}${did ? " · did you mean “" + did + "”" : ""}</div>
+        <div class="cols"><div><b>Before</b><ol>${before.slice(0, 6).map((g) => `<li class="${c.expect(g) ? "hit" : ""}">${label(g)}</li>`).join("")}</ol></div>
+        <div><b>After</b><ol>${ranked.slice(0, 6).map((g) => `<li class="${c.expect(g) ? "hit" : ""}">${label(g)}</li>`).join("")}</ol></div></div>`;
+    } catch (e) {
+      fail++; box.className += " fail"; box.innerHTML = `<h2>“${c.q}” — ERROR</h2><div class="t">${e.message}</div>`;
+    }
+    out.appendChild(box);
+    document.getElementById("summary").textContent = `${pass} passed, ${fail} failed (running…)`;
+  }
+  const s = document.getElementById("summary"); s.textContent = `${pass} passed, ${fail} failed`; s.style.color = fail ? "#f07d73" : "#5ecfb1";
+})();
+</script></body></html>
