@@ -1084,8 +1084,8 @@ main { min-height: 100vh; min-height: 100svh; }
 
 /* Section headers: mono uppercase label, a hairline that fills the width, a right-aligned link; a 2px ink rule above */
 .section__head { align-items: baseline; gap: var(--s-4); margin-bottom: var(--s-5); padding-top: var(--s-3); border-top: 2px solid var(--rule); }
-.section__titles { order: 1; flex: none; max-width: 70%; }
-.section__head::after { content: ""; order: 2; flex: 1; align-self: flex-start; height: 1px; margin-top: 0.7em; background: var(--border-strong); }
+.section__titles { order: 1; flex: 0 1 auto; min-width: 0; max-width: 70%; }
+.section__head::after { content: ""; order: 2; flex: 1 1 1rem; min-width: 1rem; align-self: flex-start; height: 1px; margin-top: 0.7em; background: var(--border-strong); }
 .section__link { order: 3; font: var(--fw-medium) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); text-transform: uppercase; color: var(--text); }
 .section__link:hover { color: var(--accent-strong); }
 .section__link svg { display: none; }
@@ -1241,3 +1241,124 @@ main { min-height: 100vh; min-height: 100svh; }
   .album-card__ranked > .art, .list-card .thumb { width: 48px; }
   .album-card__ranked .album-card__rank, .list-card__rank { font-size: 1.75rem; }
 }
+
+/* ==========================================================================
+   LINER NOTES, stage 6: the album page
+   Fraunces title, mono artist and facts, record-label stamps for the scores, a segmented 1-10 row, a tracklist set as a table
+   with dotted leaders, reviews in Fraunces, a flat ink histogram, and the ambient tint as a flat wash (no gradients, no blur).
+   ========================================================================== */
+.ahero__bg { display: none; }
+.ahero__title { font: var(--fw-medium) clamp(2.75rem, 7vw, 5.5rem) / 0.95 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; letter-spacing: -0.03em; }
+.eyebrow { font: var(--fw-medium) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); color: var(--text-2); }
+.ahero__artist { font: var(--fw-medium) var(--fs-md) / 1.3 var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; text-decoration: underline; text-decoration-thickness: 1px; text-decoration-color: var(--rule); text-underline-offset: 6px; }
+.ahero__artist:hover { color: var(--accent-strong); text-decoration-color: var(--accent-strong); }
+.ahero__facts, .ahero__genres { font: var(--fw-regular) var(--fs-sm) / 1.5 var(--font-mono); color: var(--text-2); }
+.ahero__genres a { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 4px; }
+.ahero__genres a:hover { color: var(--accent-strong); }
+.dot { border-radius: 0; width: 3px; height: 3px; }
+
+/* The sleeve keeps its black vinyl: it slides out on hover, but no longer spins */
+.vinyl__svg { animation: none; }
+.vinyl { transition: transform 400ms ease-out; }
+.vinyl__disc { fill: var(--disc); stroke: var(--disc-groove); }
+.vinyl__ring { stroke: var(--disc-groove); }
+.vinyl__label { fill: var(--bg); stroke: var(--disc-groove); }
+.vinyl__text { fill: var(--text); font: var(--fw-medium) 30px var(--font-display); }
+.vinyl__hole { fill: var(--disc); }
+.sleeve .album__art .art { border-radius: 0; outline: 1px solid var(--art-edge); }
+
+/* Scores as record-label stamps: a thin double ring, a big Fraunces numeral, a small mono "/10" beneath */
+.figures { gap: var(--s-6) var(--s-10); padding: var(--s-5) 0; border-top: 2px solid var(--rule); border-bottom: 1px solid var(--border-strong); border-block-width: 0; border-top-width: 2px; border-bottom-width: 1px; }
+.figure { justify-items: center; align-content: start; gap: var(--s-2); }
+.figure__num { position: relative; display: grid; place-content: center; width: 124px; height: 124px; padding-bottom: 14px; border: 1px solid var(--rule); border-radius: 50%; outline: 1px solid var(--rule); outline-offset: -7px;
+  font: var(--fw-medium) 3.25rem / 1 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; letter-spacing: -0.02em; color: var(--text); text-align: center; }
+.figure__num::after { content: "/10"; position: absolute; left: 0; right: 0; bottom: 25px; font: var(--fw-regular) 0.6875rem / 1 var(--font-mono); letter-spacing: 0.06em; color: var(--text-3); }
+.figure[data-tone="top"] .figure__num { color: var(--accent-strong); }
+.figure--mine .figure__num { color: var(--accent-strong); border-color: var(--accent); outline-color: var(--accent); }
+.figure--mine .figure__num::after { color: var(--accent-strong); }
+.figure__label { font: var(--fw-medium) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); color: var(--text-2); }
+.record { width: 136px; height: 136px; }
+.stamp__ring { fill: none; stroke: var(--text-3); stroke-width: 1.5; }
+.stamp__ring--in { stroke-width: 0.75; }
+.record:not(:has(.stamp__num--none)) .stamp__ring { stroke: var(--accent); }
+.stamp__num { fill: var(--accent-strong); font: var(--fw-medium) 54px var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; }
+.stamp__num--none { fill: var(--text-3); }
+.stamp__of { fill: var(--accent-strong); font: var(--fw-regular) 11px var(--font-mono); letter-spacing: 0.06em; }
+.rating-panel { background: none; border: 0; padding: 0; }
+
+/* 1-10: one square-bordered segmented row. The 1px gaps show the ink background, so the grid draws its own rules at any width. */
+.picker, .rate .picker { gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 0; }
+.picker button, .rate .picker button { border: 0; border-radius: 0; background: var(--bg); color: var(--text); font: var(--fw-medium) 1.375rem / 1 var(--font-display); }
+.picker button:hover { background: var(--surface-2); }
+.picker button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+/* Histogram: bars are ink, the viewer's own score is vermilion */
+.dist__bar { background: var(--text-2); opacity: 1; border-radius: 0; }
+.dist__col.is-mine .dist__bar { background: var(--accent); }
+.dist__n, .dist__label { font: var(--fw-regular) var(--fs-xs) / 16px var(--font-mono); color: var(--text-3); }
+.dist__col.is-mine .dist__label, .dist__col.is-mine .dist__n { color: var(--accent-strong); font-weight: var(--fw-medium); }
+.months .dist__bar, .decbars .dist__bar { background: var(--text-2); }
+
+/* Tracklist as a table: mono number, title, dotted leader, mono duration, star */
+.tracks { border-top: 1px solid var(--border-strong); }
+.track { grid-template-columns: 3rem minmax(0, max-content) minmax(1rem, 1fr) auto 44px; column-gap: var(--s-2); min-height: 52px; padding-inline: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+.track:hover { background: transparent; }
+.track > .track__pos { grid-column: 1; }
+.track > .track__title { grid-column: 2; }
+.track::after { content: ""; grid-column: 3; grid-row: 1; align-self: end; height: 0; margin-bottom: 1.05rem; border-bottom: 1px dotted var(--text-3); }
+.track > .track__len { grid-column: 4; }
+.track > .icon-btn { grid-column: 5; }
+.track__pos { font: var(--fw-regular) var(--fs-sm) / 1 var(--font-mono); color: var(--text-3); text-align: left; }
+.track__title { font: var(--fw-regular) var(--fs-base) / 1.3 var(--font-ui); }
+.track__len { font: var(--fw-regular) var(--fs-sm) / 1 var(--font-mono); color: var(--text-3); }
+.track.is-standout .track__pos { color: var(--accent-strong); font-weight: var(--fw-medium); }
+.track.is-standout .track__title { font-weight: var(--fw-medium); }
+.track .icon-btn[aria-pressed="true"] svg { fill: var(--accent); stroke: var(--accent); }
+@media (max-width: 760px) { .track { grid-template-columns: 2.25rem minmax(0, max-content) minmax(0.5rem, 1fr) auto 44px; } }
+
+/* Reviews: set in Fraunces at reading size, one hairline between them, no card frames */
+.reviews { gap: 0; }
+.review-card { background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: var(--s-5) 0; }
+.review-card__body { font: var(--fw-regular) var(--fs-md) / var(--lh-body) var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 0; max-width: 66ch; }
+.review-card__body--empty { color: var(--text-3); font-style: italic; }
+.review-card__who strong { font: var(--fw-medium) var(--fs-sm) / 1.3 var(--font-ui); }
+
+/* Ambient tint: the cover's dominant color as a flat wash over the page, 8-12%, multiply on paper and screen in the dark. Fades in; never a gradient. */
+.album2::after { content: ""; position: fixed; z-index: -1; inset: 0; height: auto; pointer-events: none; background: var(--album-tint); mix-blend-mode: var(--tint-blend); opacity: 0; }
+.album2[data-tinted]::after { opacity: var(--tint-strength); }
+.rate__side .score--lg, #myScore { color: var(--accent-strong); }   /* your own score is always vermilion */
+
+/* ==========================================================================
+   LINER NOTES, stage 7: artist and profile pages (same grid and section-header system)
+   ========================================================================== */
+.profile { border-bottom: 1px solid var(--border-strong); }
+.avatar--lg { border-radius: var(--r-md); background: var(--surface-1); border: 1px solid var(--rule); font: var(--fw-medium) 2rem / 1 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; }
+.profile__eyebrow { font: var(--fw-medium) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); text-transform: uppercase; color: var(--text-2); }
+.profile__stats { gap: var(--s-3) var(--s-10); }
+.stat__value { font: var(--fw-medium) var(--fs-xl) / 1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+.stat__label { font: var(--fw-medium) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); text-transform: uppercase; color: var(--text-3); }
+.artist-card__img { border-radius: var(--r-sm); background: var(--surface-1); border: 1px solid var(--border-strong); font-family: var(--font-display); }
+.artist-card__name { font: var(--fw-medium) var(--fs-base) / 1.3 var(--font-ui); }
+.decade-card, .genre-card { border-radius: var(--r-sm); background: transparent; border: 1px solid var(--border-strong); }
+.decade-card:hover, .genre-card:hover { background: var(--surface-1); border-color: var(--rule); }
+.decade-card__num, .genre-card__name { font-family: var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; }
+.decade-card__sub, .genre-card__top { font-family: var(--font-mono); }
+.panel, .fieldset, .recap__hero, .recap__note { border-radius: var(--r-sm); }
+.stats__sample { border-radius: var(--r-sm); border: 1px solid var(--rule); background: var(--surface-1); }
+.heat__cell { border-radius: 0; }
+.donut__dot { border-radius: 0; }
+
+/* ==========================================================================
+   LINER NOTES, stage 8: loading states and paper grain
+   Loading is a flat well: --surface-1, square, no shimmer, no animation. Sizes are reserved so arriving content doesn't shift anything.
+   ========================================================================== */
+.sk { background: var(--surface-1); border-radius: 0; animation: none; }
+.sk-line { height: 12px; border-radius: 0; }
+.art, .collage, .collage__cell { background: var(--surface-1); }
+.art__fallback { color: var(--text-3); }
+/* The home hero's cover mosaic: no gray boxes while loading, covers simply arrive */
+.hero__mosaic .sk { background: transparent; }
+.hero__mosaic { gap: var(--s-2); }
+@media (prefers-reduced-motion: no-preference) { .hero__mosaic .art img { animation: cover-in 220ms ease-out both; } @keyframes cover-in { from { opacity: 0; } } }
+/* The grain (a static noise tile, --grain) also sits under the fixed bars so the page reads as one sheet. --grain: none removes it. */
+.nav, .tabbar, .menu, .dialog { background: var(--bg) var(--grain); }

@@ -226,7 +226,7 @@ async function applyAlbumTint(url) {
   const page = $(".album2");
   if (!tint || !page || !page.isConnected) return;
   page.style.setProperty("--album-tint", tint);
-  requestAnimationFrame(() => { page.dataset.tinted = "1"; });
+  setTimeout(() => { page.dataset.tinted = "1"; }, 40);   // a timer, not requestAnimationFrame: rAF is paused in background tabs
 }
 // Re-tints an element when its score changes (the same ramp as RL.toneAttr)
 const setTone = (el, n) => { if (!el) return; const t = RL.scoreTone(n); if (t) el.dataset.tone = t; else delete el.dataset.tone; };
@@ -1410,12 +1410,13 @@ async function resolveFind(artist, title) {
 }
 
 /* ---------- Album page ---------- */
+// The viewer's own score as a record-label stamp: a thin double ring, a big Fraunces numeral and a small mono "/10" beneath. Vermilion because it's yours.
 function recordSvg(score) {
-  const rings = Array.from({ length: 10 }, (_, i) => `<circle class="groove ${score && 10 - i <= score ? "on" : ""}" cx="68" cy="68" r="${64 - i * 3.7}"/>`).join("");
-  return `<svg class="record"${RL.toneAttr(score)} viewBox="0 0 136 136" role="img" aria-label="${score ? `Your score: ${score} out of 10` : "Not rated yet"}">
-    ${rings}<circle class="label" cx="68" cy="68" r="24"/><text class="num" x="68" y="69" text-anchor="middle" dominant-baseline="central">${score || "–"}</text></svg>`;
+  return `<svg class="record" viewBox="0 0 136 136" role="img" aria-label="${score ? `Your score: ${score} out of 10` : "Not rated yet"}">
+    <circle class="stamp__ring" cx="68" cy="68" r="65"/><circle class="stamp__ring stamp__ring--in" cx="68" cy="68" r="58"/>
+    <text class="stamp__num${score ? "" : " stamp__num--none"}" x="68" y="70" text-anchor="middle" dominant-baseline="central">${score || "–"}</text>
+    <text class="stamp__of" x="68" y="100" text-anchor="middle">/10</text></svg>`;
 }
-
 // counts[i] is how many people gave the album a score of i + 1
 function distribution(counts, mineScore) {
   const max = Math.max(...counts, 1);
@@ -1528,7 +1529,6 @@ async function renderAlbum(id) {
   view().innerHTML = `
     <article class="album2">
       <header class="ahero">
-        ${album.cover_url ? `<div class="ahero__bg" aria-hidden="true"><img src="${esc(smallArt(album.cover_url))}" alt="" decoding="async" onerror="this.parentNode.remove()"></div>` : ""}
         <div class="ahero__inner">
           <div class="sleeve">
             <div class="vinyl" aria-hidden="true">${vinylSvg(S.stats ? S.stats.avg_score : "")}</div>
@@ -3260,7 +3260,6 @@ function routeInner() {
 window.addEventListener("hashchange", route);
 
 // Album page backdrop fades out as you scroll so the content below sits on the plain page color
-window.addEventListener("scroll", () => { const bg = document.querySelector(".ahero__bg"); if (bg) bg.style.opacity = String(Math.max(0, 1 - window.scrollY / 700)); }, { passive: true });
 // On phones, tuck the nav away while scrolling down; bring it back on scroll up
 let lastY = 0;
 window.addEventListener("scroll", () => {
