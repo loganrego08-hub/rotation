@@ -1017,3 +1017,14 @@ main { min-height: 100vh; min-height: 100svh; }
   .heat__key { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) { .donut__arc { transition: stroke-dasharray var(--dur) var(--ease); } }
+
+/* ---------- Ambient album tint (set from the cover by applyAlbumTint) ---------- */
+/* A soft wash of the cover's dominant color over --bg at about 15%. Fixed like the blurred backdrop so it never adds width or scroll.
+   Starts invisible and fades in once the color is known; with reduced motion it simply appears. */
+.album2::after {
+  content: ""; position: fixed; z-index: -1; top: var(--nav-h); left: 0; right: 0; height: min(75vh, 720px); pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--album-tint) 16%, transparent), transparent);
+  opacity: 0;
+}
+.album2[data-tinted]::after { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) { .album2::after { transition: opacity 900ms var(--ease); } }

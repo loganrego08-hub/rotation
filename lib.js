@@ -82,6 +82,39 @@
   const scoreVar = (n) => (scoreTone(n) ? `var(--score-${scoreTone(n)})` : "var(--text-muted)");   // for canvas / inline use
   const toneAttr = (n) => (scoreTone(n) ? ` data-tone="${scoreTone(n)}"` : "");                    // for HTML strings
 
+  /* ---------- Ambient album tint ----------
+     pixels: RGBA bytes from a small canvas. Returns { h, s, l, css } (hue 0-360, s/l 0-1) or null when the cover has no real color
+     (greyscale, near black, near white). Pixels vote for a hue bucket weighted by how colorful and mid-tone they are, so a big
+     white border or black background can't win. Saturation and lightness are then clamped, so a neon or near-white cover can't
+     produce a tint that hurts contrast with the text above it. */
+  const TINT_CLAMP = { sMin: 0.22, sMax: 0.55, lMin: 0.32, lMax: 0.5 };
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+    if (!d) return { h: 0, s: 0, l };
+    const s = d / (1 - Math.abs(2 * l - 1));
+    const h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return { h: h * 60, s, l };
+  }
+  function tintFromPixels(pixels) {
+    const BUCKETS = 12, bins = Array.from({ length: BUCKETS }, () => ({ w: 0, s: 0, l: 0, hx: 0, hy: 0 }));
+    let total = 0;
+    for (let i = 0; i + 3 < pixels.length; i += 4) {
+      if (pixels[i + 3] < 200) continue;                               // transparent
+      const { h, s, l } = rgbToHsl(pixels[i], pixels[i + 1], pixels[i + 2]);
+      const w = s * (1 - Math.abs(2 * l - 1)) ** 2;                    // colorful and mid-tone pixels count; greys, blacks and whites don't
+      if (w < 0.02) continue;
+      const b = bins[Math.floor(h / (360 / BUCKETS)) % BUCKETS];
+      b.w += w; b.s += s * w; b.l += l * w; b.hx += Math.cos((h * Math.PI) / 180) * w; b.hy += Math.sin((h * Math.PI) / 180) * w; total += w;
+    }
+    const best = bins.reduce((a, b) => (b.w > a.w ? b : a), bins[0]);
+    if (total < 3 || best.w < total * 0.2) return null;                // nothing dominant: no tint is better than a muddy one
+    const hue = ((Math.atan2(best.hy, best.hx) * 180) / Math.PI + 360) % 360;
+    const C = TINT_CLAMP, clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    const s = clamp(best.s / best.w, C.sMin, C.sMax), l = clamp(best.l / best.w, C.lMin, C.lMax);
+    return { h: Math.round(hue), s: Math.round(s * 100) / 100, l: Math.round(l * 100) / 100, css: `hsl(${Math.round(hue)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%)` };
+  }
+
   /* ---------- Stats dashboard ---------- */
   // Dates are plain YYYY-MM-DD strings, compared as text, so time zones never shift a day.
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -416,7 +449,7 @@
     return parts;
   }
 
-  root.RotationLib = { scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  root.RotationLib = { tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
 // api/search.js shares the same ranking code as the browser
 if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;

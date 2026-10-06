@@ -195,6 +195,39 @@ function artwork(src, alt, cls = "", { priority = false } = {}) {
   return `<div class="art ${cls}"><img src="${esc(src)}"${srcset} alt="${esc(alt)}" ${priority ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"'} decoding="async"
     onerror="this.parentNode.insertAdjacentHTML('beforeend', this.dataset.fb); this.remove()" data-fb="${esc(fallback)}"></div>`;
 }
+// Ambient album tint: the dominant color of the cover, drawn on a 32px canvas. The cover is loaded a second time with CORS on; if the
+// host doesn't allow it the canvas is tainted, getImageData throws, and the page simply gets no tint. Cached for the session.
+const tintCache = new Map();
+function ambientTint(url) {
+  if (!url) return Promise.resolve(null);
+  const src = smallArt(url);
+  if (tintCache.has(src)) return tintCache.get(src);
+  const p = new Promise((done) => {
+    const img = new Image(), timer = setTimeout(() => done(null), 5000);
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      clearTimeout(timer);
+      try {
+        const c = document.createElement("canvas"); c.width = c.height = 32;
+        const g = c.getContext("2d", { willReadFrequently: true });
+        g.drawImage(img, 0, 0, 32, 32);
+        done(RL.tintFromPixels(g.getImageData(0, 0, 32, 32).data)?.css || null);
+      } catch { done(null); }
+    };
+    img.onerror = () => { clearTimeout(timer); done(null); };
+    img.src = src;
+  });
+  tintCache.set(src, p);
+  return p;
+}
+// Sets --album-tint on the album page, then marks it so the CSS fades the tint in (neutral first, so nothing flashes)
+async function applyAlbumTint(url) {
+  const tint = await ambientTint(url);
+  const page = $(".album2");
+  if (!tint || !page || !page.isConnected) return;
+  page.style.setProperty("--album-tint", tint);
+  requestAnimationFrame(() => { page.dataset.tinted = "1"; });
+}
 // Re-tints an element when its score changes (the same ramp as RL.toneAttr)
 const setTone = (el, n) => { if (!el) return; const t = RL.scoreTone(n); if (t) el.dataset.tone = t; else delete el.dataset.tone; };
 const smallArt = (u) => (u || "").replace("/front-500", "/front-250");
@@ -1580,6 +1613,7 @@ async function renderAlbum(id) {
       </div>
     </article>
     <div id="albumMore"></div>`;
+  applyAlbumTint(album.cover_url);
 
   // Fall back to Apple artwork when the Cover Art Archive has none
   $(".album__art img")?.addEventListener("error", () => appleArt(album.artist, album.title).then((url) => {

@@ -175,6 +175,28 @@ test("scoreTone: 1-4 low, 5-6 mid, 7-8 high, 9-10 top; averages round; nothing f
   eq(L.toneAttr(9), ' data-tone="top"'); eq(L.toneAttr(null), ""); eq(L.scoreVar(2), "var(--score-low)"); eq(L.scoreVar(null), "var(--text-muted)");
 });
 
+/* ---- ambient tint ---- */
+const px = (rgb, n = 100) => Uint8ClampedArray.from(Array.from({ length: n }, () => [...rgb, 255]).flat());
+test("tint: a neon cover is clamped so it can't hurt contrast", () => {
+  const t = L.tintFromPixels(px([255, 0, 255]));
+  ok(t && t.s <= L.TINT_CLAMP.sMax && t.l <= L.TINT_CLAMP.lMax && t.l >= L.TINT_CLAMP.lMin, "saturation and lightness inside the clamp: " + JSON.stringify(t));
+  ok(t.h > 295 && t.h < 305, "hue stays magenta");
+});
+test("tint: white, black, grey and transparent covers give no tint", () => {
+  eq(L.tintFromPixels(px([250, 250, 250])), null); eq(L.tintFromPixels(px([5, 5, 5])), null); eq(L.tintFromPixels(px([128, 128, 128])), null);
+  eq(L.tintFromPixels(Uint8ClampedArray.from(Array.from({ length: 100 }, () => [200, 40, 40, 0]).flat())), null, "transparent pixels are ignored");
+  eq(L.tintFromPixels(new Uint8ClampedArray(0)), null);
+});
+test("tint: a big white border does not beat the real color", () => {
+  const pixels = Uint8ClampedArray.from([...px([255, 255, 255], 300), ...px([30, 90, 200], 60)]);
+  const t = L.tintFromPixels(pixels);
+  ok(t && t.h > 205 && t.h < 225, "blue wins over white: " + JSON.stringify(t));
+});
+test("tint: two colors, the bigger one wins", () => {
+  const t = L.tintFromPixels(Uint8ClampedArray.from([...px([220, 40, 40], 80), ...px([40, 200, 60], 30)]));
+  ok(t && (t.h < 15 || t.h > 345), "red dominates: " + JSON.stringify(t));
+});
+
 /* ---- search ranking ---- */
 const FX = window.SEARCH_FIXTURE;
 const rk = (q, o) => L.rankAlbums(q, FX, {}, o || {});
