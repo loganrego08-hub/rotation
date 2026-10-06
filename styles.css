@@ -137,9 +137,9 @@
 }
 
 /* Metric-adjusted fallbacks so text doesn't jump when the web fonts arrive (values measured against the real fonts in a browser) */
-@font-face { font-family: "Fraunces Fallback"; src: local("Georgia"); size-adjust: 100%; ascent-override: 92%; descent-override: 24%; line-gap-override: 0%; }
-@font-face { font-family: "Schibsted Fallback"; src: local("Arial"); size-adjust: 100%; ascent-override: 96%; descent-override: 24%; line-gap-override: 0%; }
-@font-face { font-family: "Plex Mono Fallback"; src: local("Courier New"); size-adjust: 100%; ascent-override: 102%; descent-override: 30%; line-gap-override: 0%; }
+@font-face { font-family: "Fraunces Fallback"; src: local("Georgia"); size-adjust: 86%; ascent-override: 114%; descent-override: 30%; line-gap-override: 0%; }
+@font-face { font-family: "Schibsted Fallback"; src: local("Arial"); size-adjust: 103%; ascent-override: 95%; descent-override: 25%; line-gap-override: 0%; }
+@font-face { font-family: "Plex Mono Fallback"; src: local("Courier New"); size-adjust: 100%; ascent-override: 103%; descent-override: 28%; line-gap-override: 0%; }
 /* Self-hosted WOFF2, Latin subset, from Fontsource (SIL OFL); see fonts/README.txt */
 @font-face { font-family: "Fraunces"; src: url("fonts/fraunces-latin-full-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
 @font-face { font-family: "Fraunces"; src: url("fonts/fraunces-latin-wght-italic.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
@@ -155,7 +155,7 @@ body {
   margin: 0; min-height: 100vh;
   background: var(--bg) var(--grain); color: var(--text);
   font: var(--fw-regular) var(--fs-base) / var(--lh-body) var(--font-ui);
-  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; font-optical-sizing: auto;
   font-variant-numeric: tabular-nums;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -179,15 +179,17 @@ svg { flex: none; }
 
 /* ==========================================================================
    Typography roles
+   Fraunces: wordmark (italic), page and album titles, rank numerals, big scores, review text.
+   Schibsted Grotesk: UI and body (16px minimum). IBM Plex Mono: catalog metadata, uppercase labels, track numbers, durations, years, counts.
+   Numerals are tabular everywhere they align. Large display sizes use SOFT 0 and WONK 1 (Fraunces axes); opsz follows the size automatically.
    ========================================================================== */
-.t-hero  { font: var(--fw-medium) var(--fs-3xl) / 1.02 var(--font-display); letter-spacing: -0.02em; }
-.t-title { font: var(--fw-medium) var(--fs-2xl) / var(--lh-tight) var(--font-display); letter-spacing: -0.015em; }
-.t-page  { font: var(--fw-medium) var(--fs-xl) / var(--lh-tight) var(--font-display); letter-spacing: -0.01em; }
-.t-section { font: var(--fw-medium) var(--fs-lg) / var(--lh-snug) var(--font-display); }
+.t-hero  { font: var(--fw-medium) var(--fs-3xl) / 0.98 var(--font-display); letter-spacing: -0.025em; font-variation-settings: "SOFT" 0, "WONK" 1; text-wrap: balance; }
+.t-title { font: var(--fw-medium) var(--fs-2xl) / var(--lh-tight) var(--font-display); letter-spacing: -0.02em; font-variation-settings: "SOFT" 0, "WONK" 1; text-wrap: balance; overflow-wrap: anywhere; }
+.t-page  { font: var(--fw-medium) var(--fs-xl) / var(--lh-tight) var(--font-display); letter-spacing: -0.015em; }
+.t-section { font: var(--fw-medium) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); text-transform: uppercase; color: var(--text); }
 .t-lead  { font-size: var(--fs-md); color: var(--text-2); line-height: var(--lh-body); }
-.t-label { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--text-2); }
-.t-meta  { font-size: var(--fs-xs); color: var(--text-3); }
-
+.t-label { font: var(--fw-medium) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); text-transform: uppercase; color: var(--text-2); }
+.t-meta  { font: var(--fw-regular) var(--fs-xs) / 1.5 var(--font-mono); letter-spacing: 0.02em; color: var(--text-3); }
 /* ==========================================================================
    Navigation
    ========================================================================== */
