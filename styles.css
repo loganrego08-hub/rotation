@@ -932,9 +932,9 @@ main { min-height: 100vh; min-height: 100svh; }
 .heat__month { grid-row: 1; overflow: visible; }
 .heat__day { grid-column: 1; }
 .heat__tip { position: fixed; z-index: 60; pointer-events: none; padding: 6px 10px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--text); font-size: var(--fs-xs); white-space: nowrap; box-shadow: var(--shadow-pop); }
-.decades { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 8px; height: 190px; }
-.decades__col { display: grid; grid-template-rows: 16px minmax(0, 1fr) 16px; justify-items: center; gap: 4px; min-width: 0; }
-.decades .dist__bar { background: var(--accent); opacity: 1; max-width: 44px; margin: 0 auto; }
+.decbars { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 8px; height: 190px; }
+.decbars__col { display: grid; grid-template-rows: 16px minmax(0, 1fr) 16px; justify-items: center; gap: 4px; min-width: 0; }
+.decbars .dist__bar { background: var(--accent); opacity: 1; max-width: 44px; margin: 0 auto; }
 .donut { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: var(--s-6); align-items: center; }
 .donut__svg { width: 100%; height: auto; display: block; }
 .donut__num { font-family: var(--font-display); font-size: 7px; fill: var(--text); }

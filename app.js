@@ -2963,8 +2963,8 @@ function donutHTML(genres, withGenre) {
 function decadesHTML(ds) {
   if (!ds.length) return `<p class="t-meta">No release dates yet for your rated albums.</p>`;
   const max = Math.max(...ds.map((d) => d.n), 1);
-  return `<div class="decades" style="--n:${ds.length}" role="img" aria-label="Albums by release decade: ${ds.map((d) => `${d.label} ${d.n}`).join(", ")}">${ds.map((d) => `
-    <div class="decades__col" title="${d.label}: ${plural(d.n, "album")}"><span class="dist__n">${d.n}</span><span class="dist__track"><span class="dist__bar" style="height:${Math.max(4, Math.round((d.n / max) * 100))}%"></span></span><span class="dist__label">${d.label}</span></div>`).join("")}</div>`;
+  return `<div class="decbars" style="--n:${ds.length}" role="img" aria-label="Albums by release decade: ${ds.map((d) => `${d.label} ${d.n}`).join(", ")}">${ds.map((d) => `
+    <div class="decbars__col" title="${d.label}: ${plural(d.n, "album")}"><span class="dist__n">${d.n}</span><span class="dist__track"><span class="dist__bar" style="height:${Math.max(4, Math.round((d.n / max) * 100))}%"></span></span><span class="dist__label">${d.label}</span></div>`).join("")}</div>`;
 }
 
 async function renderStats(sampleMode) {
