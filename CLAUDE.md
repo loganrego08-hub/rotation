@@ -86,9 +86,8 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Ranking: `album_rankings.weighted_score` (Bayesian average, prior strength 5) only orders Highest rated / Top rated lists
   (3+ ratings). The UI always shows the plain average and the count. Never display the weighted score.
 - Abuse guards (v5): 100 new ratings/hour/user, 300ms between edits of one rating, review length cap, album facts can't be overwritten.
-- Album page layout (editorial redesign): `.ahero` header (sleeve = cover + `vinyl` record peeking out, big serif title, ruled `.figures` for community/your score),
+- Album page layout: `.ahero` header (sleeve = cover + `vinyl` record peeking out, big Fraunces title, `.figures` = record-label stamps for community/your score),
   then `.album-body` (main column + sticky community aside; stacks below 960px). Classes are `.ahero*`, NOT `.hero*` (that is the home page).
-  The blurred cover backdrop (`.ahero__bg`, fixed, masked, fades on scroll) is a deliberate, scoped exception to "no gradients"; don't reuse it elsewhere.
   Element ids (#yourRating, #picker, #save, #communityBody, #heroFigures, ...) are relied on by `tests/client-flows.js`; keep them.
 - Album page (`renderAlbum`): community rating + distribution (`album_score_counts`) are shown apart from "Your rating".
   Reviews are private by default; a writer opts in with "Share this review" and it appears via view `album_reviews`
@@ -97,26 +96,30 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   Links are hash URLs (`#/album/<musicbrainz id>`), so direct opens and refreshes work; the Share button copies/shares `location.href`.
 - Decade pages mix community-rated albums with a curated `DECADES` seed list (artwork via Apple, then Cover Art Archive).
 
-## Design system (styles.css)
-- All values come from tokens in `:root`; use tokens, never hard-coded colors or sizes. The only color literals in the codebase are the token definitions
-  (plus the `theme-color` meta in index.html, which must equal `--bg`). Old names (`--surface-1/2/3`, `--text-2/3`, `--accent-ink`, `--danger`) are aliases of the new ones.
-- Warm near-black frame (`--bg` #0F0F10, `--surface`, `--raised`), album covers supply the color. ONE accent, amber `--accent` #F2A93B (+ hover/pressed, text on it is `--on-accent`):
-  primary buttons, links, active nav/tab, focus rings, selected states, starred tracks. Secondary buttons stay neutral.
-- Score ramp (cool to hot): `--score-low` 1-4, `--score-mid` 5-6, `--score-high` 7-8, `--score-top` 9-10. The ONE mapping is `RL.scoreTone(n)` in lib.js; HTML strings use
-  `RL.toneAttr(n)` (adds `data-tone`), live updates use `setTone(el, n)`, CSS reads `--score-c`. Used by score chips, tiles, the picker, the record, community averages, the histogram
-  and hero figures. The number is always printed too. Never color a rating with the functional colors.
-- Functional colors (`--success`, `--error`, `--info`; `--warning` is the accent) are for system states only, always with an icon or label. Chart movement is NOT red/green:
-  Up/Down are neutral text + arrow, New is accent, unchanged/re-entry are muted.
-- `--text-faint` is for disabled or decorative use only (3.45:1 on the page; it is currently unused). Form controls and the picker use `--border-control` (3:1); other borders are decorative.
-- Ambient tint: `applyAlbumTint` extracts the cover's dominant color on a 32px canvas (`RL.tintFromPixels`, saturation/lightness clamped, no tint for greyscale covers or
-  failed/CORS-blocked loads, cached per session) and sets `--album-tint` on `.album2`; `.album2::after` washes it in at 16% and fades in (not with reduced motion).
-- Light theme tokens exist as `:root[data-theme="light"]` and pass the same contrast audit, but nothing sets the attribute (no theme toggle). Review every screen before enabling.
-- Contrast audit (re-run after any token change): text, muted text and accent text 4.5:1 on all four surfaces, `--on-accent` on accent and every score color 4.5:1, ring and control borders 3:1.
-- Type: Newsreader (display serif) + Geist (UI). Keep headings restrained.
-- No glassmorphism, heavy shadows or neon. Gradients only as masks and the two scoped album-page washes (blurred cover backdrop, ambient tint). Respect reduced motion.
-- Components are HTML-string helpers in app.js: albumCard, artistCard, listCard, reviewCard,
-  profileHeader, emptyState, errorState, skCards/skList, toast, tabs, button, scoreChip.
-  Reuse them instead of writing new markup.
+## Design system (styles.css): "liner notes / record store"
+- Paper and ink. Light "paper" (`--bg` #F1EBDD) is the default and signature look; dark "after hours" is `:root[data-theme="dark"]`. A script in `<head>` picks the saved choice
+  (localStorage `rotation:theme`) else prefers-color-scheme; the footer toggle (`#themeToggle`, app.js `themeToggle`) switches it. Design and QA the light theme first.
+- All values come from tokens in `:root`; never hard-code colors, fonts, radii or shadows. The only literals are the token definitions, the `@font-face` rules, the `theme-color` meta
+  (kept in step with `--bg` by app.js) and the grain SVG. Old token names (`--surface-3`, `--text-muted`, `--on-accent`, `--danger`, ...) are aliases.
+- Color is rationed: covers supply it. Vermilion (`--accent`, small text `--accent-strong`, text on it `--accent-ink`) appears ONLY for: your score, your starred tracks, your bar in the
+  histogram, the primary action, 9-10 scores, "New this week", and focus rings. Everything else is ink on paper. No gradients, glows, glassmorphism, drop shadows, pills or emoji/sparkle icons.
+  Floating layers get a 1px ink rule (`--shadow-pop`), not a shadow. Radii are 0-2px (`--r-*`); covers are square. The only circles are the record-label stamp and the vinyl.
+- Print logic: 1px hairlines (`--border`), 2px ink rules (`--rule`) above major sections, mono uppercase labels (`--label-track`), tabular numerals only where numbers align
+  (applied by a selector list at the end of styles.css, not on body, because Schibsted widens punctuation under tnum).
+- Type (self-hosted WOFF2 in `fonts/`, Latin subset, `font-display: swap`, measured size-adjusted fallbacks, 237 KB total): Fraunces (variable opsz/wght/SOFT/WONK; display, ranks, big scores,
+  review text; large sizes use SOFT 0 + WONK 1), Schibsted Grotesk (UI and body, 16px minimum), IBM Plex Mono (metadata, labels, durations, counts). No Google Fonts requests.
+- Scores: numerals are ink; 9 and 10 (averages round first) are vermilion; your own score is always vermilion; there is NO color ramp. The one mapping is `RL.scoreTone(n)` in lib.js
+  (`RL.toneAttr` for HTML strings, `setTone` for live updates, CSS `[data-tone="top"]`). The number is always printed. Histogram bars are `--text-2`, your own bar is `--accent`.
+- Components are built by the HTML-string helpers in app.js (albumCard, artistCard, listCard, reviewCard, profileHeader, sectionHead, emptyState, errorState, skCards/skList, toast, tabs,
+  button, scoreChip); reuse them. Stage blocks at the end of styles.css (marked "LINER NOTES, stage N") hold the identity: nav and forms, cards and the vinyl hover (hover+fine pointer
+  only, 9px slide, off under reduced motion), chart sheet rows (`.grid:has(> .album-card__ranked)`, `.list-card`), the album page (stamps, segmented 1-10, tracklist table with dotted
+  leaders, Fraunces reviews, flat ink histogram), artist page, loading wells (flat `--surface-1`, no shimmer), grain (`--grain: none` removes it; body only).
+- Ambient tint: `applyAlbumTint` takes the cover's dominant color on a 32px canvas (`RL.tintFromPixels`, saturation/lightness clamped, none for greyscale or CORS-blocked covers, cached per
+  session) and sets `--album-tint`; `.album2::after` is a FLAT fixed wash at `--tint-strength` (8-12%), `multiply` on paper and `screen` in the dark theme, fading in (not under reduced motion).
+- Contrast is audited in the browser against computed tokens in both themes (38 pairs: text 4.5:1 on all four surfaces, accent-strong 4.5:1, ring/UI 3:1, accent-ink on accent 4.5:1,
+  worst-case tint). Re-run it after any token change; the adjusted values (`--text-3`, `--accent-strong`, `--accent-ink`, `--surface-3`) are commented where they are defined.
+- Copy voice: dry and specific, like a record-store clerk. No hype words (discover, unlock, elevate, seamless, curated, journey), no exclamation marks, sentence case. Never edit data,
+  album titles or user content.
 - Artwork is always square (`.art`, aspect-ratio 1, object-fit cover).
 ## Content rules
 - Curated shelves (charts, recommendations) filter kids, sleep, karaoke, tribute and AI-filler

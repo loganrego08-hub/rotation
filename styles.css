@@ -212,7 +212,7 @@ svg { flex: none; }
 }
 .nav__links a:hover { color: var(--text); }
 .nav__links a[aria-current="page"] { color: var(--text); }
-.nav__links a[aria-current="page"]::after { content: ""; position: absolute; left: var(--s-3); right: var(--s-3); bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
+.nav__links a[aria-current="page"]::after { content: ""; position: absolute; left: var(--s-3); right: var(--s-3); bottom: -1px; height: 2px; background: var(--rule); border-radius: 0; }
 .nav__links .icon { width: 16px; height: 16px; }
 .nav__account { margin-left: auto; position: relative; }
 
@@ -286,7 +286,7 @@ svg { flex: none; }
 }
 .input::placeholder, .textarea::placeholder { color: var(--text-3); }
 .input:hover, .textarea:hover { border-color: var(--border-hover); }
-.input:focus, .textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-line); }
+.input:focus, .textarea:focus { outline: none; border-color: var(--rule); }
 .textarea { height: auto; min-height: 140px; padding: var(--s-3); line-height: var(--lh-body); resize: vertical; }
 
 .search { position: relative; width: 100%; max-width: 440px; }
@@ -459,7 +459,7 @@ svg { flex: none; }
 .tab[aria-selected="true"] { color: var(--text); }
 .tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
 .segmented { display: inline-flex; padding: 3px; gap: 2px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-md); }
-.segmented button { display: inline-grid; place-items: center; width: 34px; height: 30px; border: 0; border-radius: 7px; background: transparent; color: var(--text-3); cursor: pointer; }
+.segmented button { display: inline-grid; place-items: center; width: 34px; height: 30px; border: 0; border-radius: 0; background: transparent; color: var(--text-3); cursor: pointer; }
 .segmented button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.75; }
 .segmented button[aria-pressed="true"] { background: var(--surface-3); color: var(--text); }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-6); }
@@ -539,7 +539,7 @@ main { max-width: var(--page); margin: 0 auto; padding: var(--s-10) var(--gutter
 .album__artist { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--text); }
 a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--text-3); }
 .album__facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); font-size: var(--fs-sm); color: var(--text-3); }
-.dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
+.dot { width: 3px; height: 3px; background: var(--text-3); }
 .block { display: grid; gap: var(--s-4); margin-top: var(--s-10); }
 .block__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4); }
 
@@ -590,7 +590,7 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 .state__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s-2); margin-top: var(--s-2); }
 
 .sk { background: var(--surface-2); border-radius: var(--r-xs); animation: sk 1.6s ease-in-out infinite; }
-.sk-line { height: 12px; border-radius: 4px; }
+.sk-line { height: 12px; }
 .sk-card { display: grid; gap: var(--s-3); }
 .sk-card .sk.art { outline: 0; }
 @keyframes sk { 50% { opacity: 0.5; } }
@@ -686,7 +686,7 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 .dist__col { display: grid; grid-template-rows: 16px minmax(0, 1fr) 16px; justify-items: center; gap: 4px; min-width: 0; }
 .dist__n, .dist__label { font-size: var(--fs-xs); color: var(--text-3); line-height: 16px; }
 .dist__track { display: flex; align-items: flex-end; width: 100%; height: 100%; }
-.dist__bar { display: block; width: 100%; border-radius: 3px 3px 0 0; background: var(--score-c, var(--text-muted)); opacity: 0.7; }
+.dist__bar { display: block; width: 100%; background: var(--text-2); }
 .dist__col.is-mine .dist__bar { opacity: 1; }
 .dist__col.is-mine .dist__label, .dist__col.is-mine .dist__n { color: var(--accent); }
 
@@ -815,7 +815,7 @@ a.album__artist:hover { text-decoration: underline; text-underline-offset: 3px; 
 .notes { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
 .note { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; padding: var(--s-4) var(--s-2); border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
 .note svg { width: 18px; height: 18px; color: var(--text-3); fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-.note.is-unread { background: var(--surface-1); box-shadow: inset 2px 0 0 var(--text); }
+.note.is-unread { background: var(--surface-1); border-left: 2px solid var(--rule); }
 .note.is-unread svg { color: var(--text); }
 
 .review-card__foot { display: flex; gap: var(--s-2); margin: 0 calc(-1 * var(--s-2)) calc(-1 * var(--s-2)); }
@@ -895,13 +895,6 @@ main { min-height: 100vh; min-height: 100svh; }
 /* paints above the fixed backdrop */
 .album2 { display: block; }
 .ahero { position: relative; isolation: isolate; margin-bottom: var(--s-12); }
-/* The cover itself, blurred and darkened, becomes the room's colour. Scoped to this page on purpose. */
-/* Fixed to the viewport (so it never adds horizontal scroll) and faded out by a scroll handler in app.js */
-.ahero__bg { position: fixed; z-index: -1; top: var(--nav-h); left: 0; right: 0; height: min(80vh, 780px); overflow: hidden; pointer-events: none;
-  -webkit-mask-image: linear-gradient(var(--mask-opaque) 50%, transparent); mask-image: linear-gradient(var(--mask-opaque) 50%, transparent); }
-/* Blur a small copy, then scale it up: the same soft wash at a fraction of the paint cost of blurring a full-width image */
-.ahero__bg img { width: 25%; height: 25%; object-fit: cover; filter: blur(12px) saturate(1.3); transform: scale(4.4); transform-origin: 0 0; }
-.ahero__bg::after { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: 0.62; }
 .ahero__inner { display: grid; grid-template-columns: minmax(0, 540px) minmax(0, 1fr); gap: var(--s-12); align-items: start; padding-top: var(--s-4); }
 .ahero__text { display: grid; gap: var(--s-4); align-content: end; min-width: 0; }
 
@@ -910,14 +903,13 @@ main { min-height: 100vh; min-height: 100svh; }
 .sleeve .album__art .art { border-radius: var(--r-xs); outline: 1px solid var(--border-strong); outline-offset: -1px; }
 .vinyl { position: absolute; z-index: 1; top: 3%; left: 0; width: 94%; aspect-ratio: 1 / 1; transform: translateX(14%); transition: transform 0.7s var(--ease); }
 .sleeve:hover .vinyl, .sleeve:focus-within .vinyl { transform: translateX(36%); }
-.vinyl__svg { display: block; width: 100%; height: 100%; animation: vinyl-spin 18s linear infinite paused; }
-.sleeve:hover .vinyl__svg { animation-play-state: running; }
+.vinyl__svg { display: block; width: 100%; height: 100%; }
+
 .vinyl__disc { fill: var(--bg); stroke: var(--border-strong); stroke-width: 1.5; }
 .vinyl__ring { fill: none; stroke: var(--border); stroke-width: 1; }
 .vinyl__label { fill: var(--surface-3); stroke: var(--border-strong); }
 .vinyl__text { fill: var(--text); font: var(--fw-medium) 30px var(--font-display); }
 .vinyl__hole { fill: var(--bg); }
-@keyframes vinyl-spin { to { transform: rotate(360deg); } }
 @keyframes rise { from { opacity: 0; transform: translateY(16px); } }
 .sleeve { animation: rise 0.8s var(--ease) both; }
 .ahero__text > * { animation: rise 0.7s var(--ease) both; }
@@ -1007,7 +999,7 @@ main { min-height: 100vh; min-height: 100svh; }
 .stats .panel .section__head { margin-bottom: 0; }
 .heat__scroll { overflow-x: auto; padding: var(--s-1) 0 var(--s-2); }
 .heat { display: grid; grid-template-columns: 28px repeat(var(--cols), minmax(10px, 1fr)); grid-template-rows: 16px repeat(7, auto); gap: 3px; min-width: 720px; outline-offset: 4px; border-radius: var(--r-sm); }
-.heat__cell { aspect-ratio: 1; border-radius: 2px; background: var(--surface-3); }
+.heat__cell { aspect-ratio: 1; background: var(--surface-3); }
 .heat__cell[data-l="1"] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-3)); }
 .heat__cell[data-l="2"] { background: color-mix(in srgb, var(--accent) 52%, var(--surface-3)); }
 .heat__cell[data-l="3"] { background: color-mix(in srgb, var(--accent) 76%, var(--surface-3)); }
@@ -1029,7 +1021,7 @@ main { min-height: 100vh; min-height: 100svh; }
 .donut__cap { font-size: 2.6px; fill: var(--text-3); }
 .donut__legend { list-style: none; display: grid; gap: var(--s-3); margin: 0; padding: 0; min-width: 0; }
 .donut__legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
-.donut__dot { width: 10px; height: 10px; border-radius: 50%; }
+.donut__dot { width: 10px; height: 10px; }
 .donut__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; font-size: var(--fs-base); }
 .toplist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); }
 .toplist__item { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: var(--s-4); align-items: center; padding: var(--s-4); border-top: 1px solid var(--border-strong); }
@@ -1047,17 +1039,7 @@ main { min-height: 100vh; min-height: 100svh; }
 }
 @media (prefers-reduced-motion: no-preference) { .donut__arc { transition: stroke-dasharray var(--dur) var(--ease); } }
 
-/* ---------- Ambient album tint (set from the cover by applyAlbumTint) ---------- */
-/* A soft wash of the cover's dominant color over --bg at about 15%. Fixed like the blurred backdrop so it never adds width or scroll.
-   Starts invisible and fades in once the color is known; with reduced motion it simply appears. */
-.album2::after {
-  content: ""; position: fixed; z-index: -1; top: var(--nav-h); left: 0; right: 0; height: min(75vh, 720px); pointer-events: none;
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--album-tint) 16%, transparent), transparent);
-  opacity: 0;
-}
-.album2[data-tinted]::after { opacity: 1; }
-@media (prefers-reduced-motion: no-preference) { .album2::after { transition: opacity 900ms var(--ease); } }
-
+/* ---------- Ambient album tint: see stage 6 ---------- */`n@media (prefers-reduced-motion: no-preference) { .album2::after { transition: opacity 900ms var(--ease); } }`n
 /* ---------- Footer theme toggle ---------- */
 .theme-toggle { display: inline-flex; align-items: center; min-height: 44px; margin-top: var(--s-3); padding: 0; border: 0; background: none; cursor: pointer;
   font: var(--fw-regular) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); text-transform: uppercase; color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; }
@@ -1247,7 +1229,6 @@ main { min-height: 100vh; min-height: 100svh; }
    Fraunces title, mono artist and facts, record-label stamps for the scores, a segmented 1-10 row, a tracklist set as a table
    with dotted leaders, reviews in Fraunces, a flat ink histogram, and the ambient tint as a flat wash (no gradients, no blur).
    ========================================================================== */
-.ahero__bg { display: none; }
 .ahero__title { font: var(--fw-medium) clamp(2.75rem, 7vw, 5.5rem) / 0.95 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; letter-spacing: -0.03em; }
 .eyebrow { font: var(--fw-medium) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); color: var(--text-2); }
 .ahero__artist { font: var(--fw-medium) var(--fs-md) / 1.3 var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; text-decoration: underline; text-decoration-thickness: 1px; text-decoration-color: var(--rule); text-underline-offset: 6px; }
@@ -1360,5 +1341,10 @@ main { min-height: 100vh; min-height: 100svh; }
 .hero__mosaic .sk { background: transparent; }
 .hero__mosaic { gap: var(--s-2); }
 @media (prefers-reduced-motion: no-preference) { .hero__mosaic .art img { animation: cover-in 220ms ease-out both; } @keyframes cover-in { from { opacity: 0; } } }
-/* The grain (a static noise tile, --grain) also sits under the fixed bars so the page reads as one sheet. --grain: none removes it. */
-.nav, .tabbar, .menu, .dialog { background: var(--bg) var(--grain); }
+/* The grain (a static noise tile, --grain) is painted on the body only: fixed and sticky bars stay flat so scrolling never repaints a texture. --grain: none removes it. */
+.nav, .tabbar, .menu, .dialog { background: var(--bg); }
+
+/* Footer attribution: small mono text under a 2px ink rule */
+.site-footer { border-top: 2px solid var(--rule); font: var(--fw-regular) var(--fs-xs) / 1.6 var(--font-mono); letter-spacing: 0.01em; color: var(--text-3); }
+.site-footer a { text-decoration-color: var(--border-strong); }
+.site-footer a:hover { color: var(--text); }
