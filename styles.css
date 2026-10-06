@@ -1,99 +1,113 @@
 /* ==========================================================================
-   Rotation design tokens
-   Album covers are the most colorful thing on every screen, so the interface is a warm, quiet dark frame with one amber
-   accent, a cool-to-hot score ramp, and a per-album ambient tint taken from the cover. Every color in this file's rules
-   comes from a token below; the only color literals in the codebase live in this block.
+   Rotation design tokens: "liner notes / record store"
+   Paper and ink. Color is rationed: album covers supply the color, vermilion (--accent) appears only for things that are
+   yours (your score, your starred tracks, your bar in the histogram), the primary action, and focus rings.
+   Print logic: 1px hairlines (--border), strong ink rules (--rule), a rigid grid, radii of 0-2px, no shadows, no gradients.
+   Light "paper" is the default and the signature look; dark "after hours" is under [data-theme="dark"]. The theme is chosen by a tiny
+   script in <head> (saved choice, else prefers-color-scheme) and switched by the footer toggle. New components: use ONLY these tokens.
    ========================================================================== */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* Surfaces (warm near-black) */
-  --bg: #0F0F10;                 /* page */
-  --surface: #171717;            /* cards, panels */
-  --raised: #1F1F21;             /* menus, dialogs, inputs */
-  --raised-hover: #29292C;       /* hover on raised */
-  --border: #2A2A2D;
-  --border-strong: #3A3A3E;
-  --border-hover: #8A8A90;       /* input hover */
-  --border-control: #6B6B71;     /* edges of form controls and the score picker: 3:1 against every surface they sit on */
+  /* Surfaces */
+  --bg: #F1EBDD;                 /* the page: paper */
+  --surface-1: #E9E1CF;          /* wells and panels */
+  --surface-2: #DFD6C1;          /* inputs, menus, raised wells */
+  --surface-3: #D3C9B2;          /* hover on a well */
+  --border: #CFC5AE;             /* 1px hairline */
+  --border-strong: #B7AC93;      /* hairline that has to survive (control edges, dashed notes) */
+  --rule: #1B1916;               /* strong rules: 2px above major sections, active underline, input base line */
 
   /* Text */
-  --text: #F2EFEA;
-  --text-muted: #A19D96;         /* secondary text and metadata: passes 4.5:1 on every surface */
-  --text-faint: #6B6862;         /* disabled and decorative only, never body copy */
+  --text: #1B1916;               /* ink */
+  --text-2: #4A463D;             /* secondary */
+  --text-3: #6F6959;             /* metadata and captions */
 
-  /* Accent: primary actions, links, active nav, focus rings, selected states, starred tracks */
-  --accent: #F2A93B;
-  --accent-hover: #FFBE5C;
-  --accent-pressed: #D98F1F;
-  --on-accent: #1A1205;          /* text and icons on an accent fill */
-  --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
-  --accent-line: color-mix(in srgb, var(--accent) 38%, transparent);
+  /* Accent: vermilion. Large text and UI only; small accent text uses --accent-strong. */
+  --accent: #D6401F;
+  --accent-strong: #B83416;      /* small text and links */
+  --accent-ink: #FFF8EE;         /* text on an accent fill */
+  --accent-hover: #BF3519;
+  --accent-pressed: #A22D13;
 
-  /* Functional colors: system states only, never ratings. Always paired with an icon or a label. */
-  --success: #4CC38A;
-  --error: #FF5C5C;
-  --info: #6AA9FF;
-  --warning: var(--accent);      /* the spec gives no warning hue; amber plus an icon or label */
-  --success-soft: color-mix(in srgb, var(--success) 13%, transparent);
-  --error-soft: color-mix(in srgb, var(--error) 13%, transparent);
-  --info-soft: color-mix(in srgb, var(--info) 13%, transparent);
-  --warning-soft: var(--accent-soft);
+  /* Functional colors: system states only, never ratings. Always with an icon or a label. */
+  --success: #2F6B3A;
+  --error: #A32117;
+  --info: #2B5C8A;
+  --warning: var(--accent-strong);
+  --success-soft: color-mix(in srgb, var(--success) 12%, transparent);
+  --error-soft: color-mix(in srgb, var(--error) 12%, transparent);
+  --info-soft: color-mix(in srgb, var(--info) 12%, transparent);
+  --warning-soft: color-mix(in srgb, var(--accent-strong) 12%, transparent);
 
-  /* Score ramp, cool to hot. Use scoreTone() in lib.js to pick one; the number is always printed too. */
-  --score-low: #8493AE;          /* 1-4 (spec #7C8AA5, lightened to reach 4.5:1 as text on the score chip) */
-  --score-mid: #B8A57A;          /* 5-6 */
-  --score-high: #F2A93B;         /* 7-8 */
-  --score-top: #FF7A45;          /* 9-10 */
-
-  /* Per-album ambient tint, set on the album page from the cover (transparent until extracted) */
+  /* Per-album ambient tint (set on the album page from the cover; transparent until extracted) */
   --album-tint: transparent;
+  --tint-blend: multiply;        /* multiply on paper, screen in the dark theme */
+  --tint-strength: 10%;          /* the wash sits at 8-12% */
 
-  /* Utility colors */
-  --scrim: rgb(0 0 0 / 0.6);     /* behind dialogs and overlays */
-  --mask-opaque: #000;           /* alpha-only mask stops; the color itself is never painted */
-  --art-edge: color-mix(in srgb, var(--text) 7%, transparent);   /* hairline that keeps dark covers from melting into the page */
+  /* Paper grain: a static noise tile on the page. Set --grain: none to remove it everywhere (always none in the dark theme). */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .11 0 0 0 0 .1 0 0 0 0 .09 0 0 0 .1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 
-  /* Aliases: the names the stylesheet already uses, mapped onto the tokens above */
-  --surface-1: var(--surface);
-  --surface-2: var(--raised);
-  --surface-3: var(--raised-hover);
-  --text-2: var(--text-muted);
-  --text-3: var(--text-muted);
-  --accent-ink: var(--on-accent);
+  /* Utility */
+  --scrim: rgb(27 25 22 / 0.5);  /* behind dialogs and overlays */
+  --art-edge: color-mix(in srgb, var(--text) 14%, transparent);   /* hairline that keeps pale covers from melting into the paper */
+  --disc: #1B1916;               /* the vinyl is always black ink, in both themes */
+  --disc-groove: #34312B;
+
+  /* Aliases kept for older rules and earlier work */
+  --surface: var(--surface-1);
+  --raised: var(--surface-2);
+  --raised-hover: var(--surface-3);
+  --text-muted: var(--text-2);
+  --text-faint: var(--text-3);
+  --on-accent: var(--accent-ink);
   --danger: var(--error);
   --danger-soft: var(--error-soft);
+  --border-control: var(--rule);
+  --border-hover: var(--text-2);
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
+  --mask-opaque: #000;
+
+  /* Score colors: no ramp. Numerals are ink; 9-10 are vermilion (see scoreTone in lib.js). */
+  --score-low: var(--text);
+  --score-mid: var(--text);
+  --score-high: var(--text);
+  --score-top: var(--accent-strong);
+
   /* Type */
-  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif;
-  --font-ui: "Geist", -apple-system, "Segoe UI", Roboto, sans-serif;
-  --fs-xs: 0.75rem;     /* 12 metadata */
-  --fs-sm: 0.8125rem;   /* 13 secondary */
-  --fs-base: 0.9375rem; /* 15 body, card titles */
-  --fs-md: 1.0625rem;   /* 17 lead */
-  --fs-lg: 1.25rem;     /* 20 section heads */
-  --fs-xl: 1.625rem;    /* 26 page heads */
-  --fs-2xl: clamp(2rem, 4.2vw, 2.875rem);   /* 32-46 album / profile titles */
-  --fs-3xl: clamp(2.25rem, 5vw, 3.5rem);    /* 36-56 home hero only */
-  --lh-tight: 1.1;
+  --font-display: "Fraunces", "Fraunces Fallback", Georgia, "Times New Roman", serif;
+  --font-ui: "Schibsted Grotesk", "Schibsted Fallback", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "Plex Mono Fallback", ui-monospace, "SF Mono", Consolas, "Courier New", monospace;
+  --fs-xs: 0.75rem;     /* 12 mono labels */
+  --fs-sm: 0.875rem;    /* 14 secondary */
+  --fs-base: 1rem;      /* 16 body */
+  --fs-md: 1.125rem;    /* 18 lead, review text */
+  --fs-lg: 1.375rem;    /* 22 section heads */
+  --fs-xl: 1.75rem;     /* 28 page heads */
+  --fs-2xl: clamp(2.25rem, 5vw, 3.5rem);    /* album / profile titles */
+  --fs-3xl: clamp(2.75rem, 7vw, 5rem);      /* home headline only */
+  --lh-tight: 1.05;
   --lh-snug: 1.3;
-  --lh-body: 1.55;
+  --lh-body: 1.6;
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-semibold: 600;
+  --label-track: 0.1em;  /* mono uppercase labels */
 
   /* Space (4px base) */
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px;
   --s-6: 24px; --s-8: 32px; --s-10: 40px; --s-12: 48px; --s-16: 64px;
 
-  /* Shape */
-  --r-xs: 4px;    /* artwork */
-  --r-sm: 6px;    /* chips, small buttons */
-  --r-md: 10px;   /* inputs, buttons, cards */
-  --r-lg: 14px;   /* panels, dialogs */
-  --r-full: 999px;
+  /* Shape: print is square. Covers are square; nothing is round except the record-label stamp and the vinyl (SVG). */
+  --r-xs: 0;
+  --r-sm: 1px;
+  --r-md: 2px;
+  --r-lg: 2px;
+  --r-full: 2px;
 
-  /* Elevation: only floating layers get a shadow */
-  --shadow-pop: 0 16px 40px color-mix(in srgb, var(--mask-opaque) 50%, transparent), 0 0 0 1px var(--border-strong);
+  /* Elevation: none. Floating layers get a 1px ink rule instead of a shadow. */
+  --shadow-pop: 0 0 0 1px var(--rule);
 
   /* Motion */
   --dur-fast: 120ms;
@@ -107,18 +121,31 @@
   --tabbar-h: 60px;
 }
 
-/* Light theme: prepared, not active. Nothing sets data-theme="light" yet (there is no theme toggle), so the app stays dark.
-   Turn it on by setting <html data-theme="light"> once a toggle exists, then review every screen. */
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #F6F2EA; --surface: #FFFFFF; --raised: #FBF8F2; --raised-hover: #EFE9DD;
-  --border: #E3DCCD; --border-strong: #CFC6B4; --border-hover: #6F695B; --border-control: #8A8372;
-  --text: #1B1A18; --text-muted: #5E5A52; --text-faint: #8E897F;
-  --accent: #8A5200; --accent-hover: #6F4100; --accent-pressed: #5A3500; --on-accent: #FFFFFF;   /* spec accent #C77F0A is 2.9:1 on the light page; darkened to pass 4.5:1 */
-  --success: #17694A; --error: #B02F2F; --info: #1F5AAB;
-  --score-low: #4A5878; --score-mid: #6B5A28; --score-high: #8A5200; --score-top: #A83A10;
-  --scrim: rgb(20 18 14 / 0.45);
+/* After hours: warm, not neutral gray */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14120F; --surface-1: #1C1915; --surface-2: #24201A; --surface-3: #2E2922;
+  --border: #3A342B; --border-strong: #4D463A; --rule: #EDE6D6;
+  --text: #EDE6D6; --text-2: #B8B0A0; --text-3: #8F8878;
+  --accent: #FF5A36; --accent-strong: #FF7A5C; --accent-ink: #14120F; --accent-hover: #FF7552; --accent-pressed: #E94A27;
+  --success: #6DBF82; --error: #FF8A78; --info: #7FB0E0;
+  --tint-blend: screen; --tint-strength: 9%;
+  --grain: none;
+  --scrim: rgb(0 0 0 / 0.6);
+  --art-edge: color-mix(in srgb, var(--text) 18%, transparent);
+  --disc: #0B0A08; --disc-groove: #2A2620;
 }
+
+/* Metric-adjusted fallbacks so text doesn't jump when the web fonts arrive (values measured against the real fonts in a browser) */
+@font-face { font-family: "Fraunces Fallback"; src: local("Georgia"); size-adjust: 100%; ascent-override: 92%; descent-override: 24%; line-gap-override: 0%; }
+@font-face { font-family: "Schibsted Fallback"; src: local("Arial"); size-adjust: 100%; ascent-override: 96%; descent-override: 24%; line-gap-override: 0%; }
+@font-face { font-family: "Plex Mono Fallback"; src: local("Courier New"); size-adjust: 100%; ascent-override: 102%; descent-override: 30%; line-gap-override: 0%; }
+/* Self-hosted WOFF2, Latin subset, from Fontsource (SIL OFL); see fonts/README.txt */
+@font-face { font-family: "Fraunces"; src: url("fonts/fraunces-latin-full-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Fraunces"; src: url("fonts/fraunces-latin-wght-italic.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: "Schibsted Grotesk"; src: url("fonts/schibsted-grotesk-latin-wght-normal.woff2") format("woff2"); font-weight: 400 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
 /* ==========================================================================
    Base
    ========================================================================== */
@@ -126,7 +153,7 @@
 html { -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--nav-h) + 16px); }
 body {
   margin: 0; min-height: 100vh;
-  background: var(--bg); color: var(--text);
+  background: var(--bg) var(--grain); color: var(--text);
   font: var(--fw-regular) var(--fs-base) / var(--lh-body) var(--font-ui);
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   font-variant-numeric: tabular-nums;
@@ -1029,3 +1056,8 @@ main { min-height: 100vh; min-height: 100svh; }
 }
 .album2[data-tinted]::after { opacity: 1; }
 @media (prefers-reduced-motion: no-preference) { .album2::after { transition: opacity 900ms var(--ease); } }
+
+/* ---------- Footer theme toggle ---------- */
+.theme-toggle { display: inline-flex; align-items: center; min-height: 44px; margin-top: var(--s-3); padding: 0; border: 0; background: none; cursor: pointer;
+  font: var(--fw-regular) var(--fs-xs) / 1.4 var(--font-mono); letter-spacing: var(--label-track); text-transform: uppercase; color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; }
+.theme-toggle:hover { color: var(--text); }

@@ -3290,3 +3290,21 @@ $("#tabbar").innerHTML = [["discover", "#/", "Discover", "compass"], ["explore",
   renderAccount();
   route();
 })();
+
+/* ---------- Theme toggle (paper / after hours) ----------
+   The initial theme is set by a script in <head> (saved choice, else the system setting). This wires the footer button, saves the
+   choice, keeps the browser's theme-color in step with --bg, and follows the system setting until a choice has been saved. */
+(function themeToggle() {
+  const KEY = "rotation:theme", btn = $("#themeToggle"), root = document.documentElement;
+  const saved = () => { try { const t = localStorage.getItem(KEY); return t === "light" || t === "dark" ? t : null; } catch { return null; } };
+  const paint = () => {
+    const dark = root.dataset.theme === "dark";
+    if (btn) btn.textContent = dark ? "Theme: after hours. Switch to paper" : "Theme: paper. Switch to after hours";
+    const bg = getComputedStyle(root).getPropertyValue("--bg").trim(), meta = $('meta[name="theme-color"]');
+    if (meta && bg) meta.setAttribute("content", bg);
+  };
+  const set = (t, save) => { root.dataset.theme = t; if (save) { try { localStorage.setItem(KEY, t); } catch {} } paint(); };
+  btn?.addEventListener("click", () => set(root.dataset.theme === "dark" ? "light" : "dark", true));
+  try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => { if (!saved()) set(e.matches ? "dark" : "light", false); }); } catch {}
+  paint();
+})();

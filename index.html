@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0F0F10">
+<meta name="theme-color" content="#F1EBDD">
 <title>Rotation</title>
 <meta name="description" content="Rotation: score albums out of 10, star standout tracks, keep lists and see where everyone else lands.">
 <meta property="og:site_name" content="Rotation">
@@ -14,10 +14,16 @@
 <link rel="canonical" href="https://rotation-ten.vercel.app/">
 <link rel="preconnect" href="https://coverartarchive.org" crossorigin>
 <link rel="preconnect" href="https://musicbrainz.org" crossorigin>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<link rel="preload" href="fonts/schibsted-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>`n<link rel="preload" href="fonts/fraunces-latin-full-normal.woff2" as="font" type="font/woff2" crossorigin>`n<link rel="stylesheet" href="styles.css">
+<script>
+/* Theme first, before anything paints: the saved choice, else the system setting. The footer toggle (app.js) changes it. */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem("rotation:theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark") t = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.dataset.theme = t;
+})();
+</script>
 </head>
 <body>
 <a class="skip" href="#view">Skip to content</a>
@@ -41,6 +47,7 @@
 
 <footer class="site-footer">
   <p>Album data from <a href="https://musicbrainz.org" rel="noopener">MusicBrainz</a> (CC0). Cover art from the <a href="https://coverartarchive.org" rel="noopener">Cover Art Archive</a> and Apple, shown for identification and owned by its copyright holders. Charts from Billboard. Rotation doesn't track listening, only ratings.</p>
+  <button type="button" class="theme-toggle" id="themeToggle"></button>
 </footer>
 
 <nav class="tabbar" id="tabbar" aria-label="Primary, mobile"></nav>
