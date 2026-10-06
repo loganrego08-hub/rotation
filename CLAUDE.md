@@ -74,6 +74,10 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Ranking: `album_rankings.weighted_score` (Bayesian average, prior strength 5) only orders Highest rated / Top rated lists
   (3+ ratings). The UI always shows the plain average and the count. Never display the weighted score.
 - Abuse guards (v5): 100 new ratings/hour/user, 300ms between edits of one rating, review length cap, album facts can't be overwritten.
+- Album page layout (editorial redesign): `.ahero` header (sleeve = cover + `vinyl` record peeking out, big serif title, ruled `.figures` for community/your score),
+  then `.album-body` (main column + sticky community aside; stacks below 960px). Classes are `.ahero*`, NOT `.hero*` (that is the home page).
+  The blurred cover backdrop (`.ahero__bg`, fixed, masked, fades on scroll) is a deliberate, scoped exception to "no gradients"; don't reuse it elsewhere.
+  Element ids (#yourRating, #picker, #save, #communityBody, #heroFigures, ...) are relied on by `tests/client-flows.js`; keep them.
 - Album page (`renderAlbum`): community rating + distribution (`album_score_counts`) are shown apart from "Your rating".
   Reviews are private by default; a writer opts in with "Share this review" and it appears via view `album_reviews`
   (author is a chosen display name, never the email). Save-to-library uses table `library` (own rows only), listed on the profile "Saved" tab.

@@ -1295,9 +1295,16 @@ function confidenceNote(n) {
   return "";
 }
 
+// A decorative record that slides out from behind the sleeve. Its label repeats the community average (shown in text elsewhere).
+function vinylSvg(label) {
+  const rings = Array.from({ length: 11 }, (_, i) => `<circle cx="100" cy="100" r="${92 - i * 4.6}" class="vinyl__ring"/>`).join("");
+  return `<svg class="vinyl__svg" viewBox="0 0 200 200" aria-hidden="true" focusable="false"><circle cx="100" cy="100" r="98" class="vinyl__disc"/>${rings}
+    <circle cx="100" cy="100" r="34" class="vinyl__label"/><text x="100" y="101" class="vinyl__text" text-anchor="middle" dominant-baseline="central">${esc(label ?? "")}</text><circle cx="100" cy="100" r="3" class="vinyl__hole"/></svg>`;
+}
+
 async function renderAlbum(id) {
-  view().innerHTML = `${loadingLabel("Loading album")}<div class="album"><div class="sk art"></div>
-    <div style="display:grid;gap:14px;align-content:start"><div class="sk sk-line" style="height:44px;width:72%"></div><div class="sk sk-line" style="width:36%"></div><div class="sk" style="height:180px;border-radius:var(--r-lg);margin-top:24px"></div></div></div>`;
+  view().innerHTML = `${loadingLabel("Loading album")}<div class="ahero ahero--loading"><div class="ahero__inner"><div class="sleeve"><div class="sk art"></div></div>
+    <div class="ahero__text" style="gap:14px"><div class="sk sk-line" style="height:18px;width:30%"></div><div class="sk sk-line" style="height:64px;width:78%"></div><div class="sk sk-line" style="height:24px;width:40%"></div><div class="sk" style="height:96px;border-radius:var(--r-md);margin-top:24px"></div></div></div></div>`;
   let album;
   try { album = await getAlbum(id); }
   catch (e) {
@@ -1363,79 +1370,96 @@ async function renderAlbum(id) {
   const pickerHTML = () => `<div class="picker" id="picker" role="group" aria-labelledby="pickLabel">${Array.from({ length: 10 }, (_, i) =>
     `<button type="button" data-s="${i + 1}" aria-pressed="${S.score === i + 1}" aria-label="Rate ${i + 1} out of 10">${i + 1}</button>`).join("")}</div>`;
 
+  const genreLinks = (album.genres || []).map((n) => { const g = matchGenre(n); return g ? `<a class="textlink" href="#/genre/${g.slug}">${esc(n)}</a>` : `<span>${esc(n)}</span>`; }).join('<span class="slash" aria-hidden="true">/</span>');
+  const heroFigures = () => `
+    <div class="figure"><span class="figure__num" id="heroAvg">${S.stats ? S.stats.avg_score : "–"}</span><span class="figure__label" id="heroCount">${S.stats ? `Community · ${plural(S.stats.rating_count, "rating")}` : "No ratings yet"}</span></div>
+    <div class="figure figure--mine"><span class="figure__num" id="heroMine">${S.score || "–"}</span><span class="figure__label">Your score</span></div>`;
+
   view().innerHTML = `
-    <article class="album">
-      <div class="album__art">${artwork(album.cover_url, `${album.title} by ${album.artist}`, "", { priority: true })}</div>
-      <div>
-        <header class="album__head">
-          <p class="t-meta" id="albumEyebrow"${eyebrow() ? "" : " hidden"}>${esc(eyebrow())}</p>
-          <h1 class="t-title">${esc(album.title)}</h1>
-          <a class="album__artist" id="artistLink" href="${artistHref(album.artist_id)}">${esc(album.artist)}</a>
-          ${facts.length ? `<div class="album__facts">${facts.map((f, i) => `${i ? '<span class="dot" aria-hidden="true"></span>' : ""}<span>${esc(f)}</span>`).join("")}</div>` : ""}
-          ${album.genres?.length ? `<div class="chips">${album.genres.map((n) => { const g = matchGenre(n);
-            return g ? `<a class="chip" href="#/genre/${g.slug}">${esc(n)}</a>` : `<span class="chip chip--static">${esc(n)}</span>`; }).join("")}</div>` : ""}
-        </header>
-
-        <div class="album__actions">
-          ${button(S.mine ? "Edit your rating" : "Rate this album", { variant: "primary", id: "jumpRate", iconName: "star" })}
-          ${button("Share", { id: "shareBtn", iconName: "share" })}
-          <button type="button" class="btn" id="pinBtn" aria-pressed="${isPinned()}">${icon(isPinned() ? "check" : "pin")}<span>${isPinned() ? "Pinned to profile" : "Pin to profile"}</span></button>
-          ${button("Add to list", { id: "listBtn", iconName: "list" })}
-        </div>
-        <div id="statusWrap" class="status-wrap">${statusHTML()}</div>
-
-        <section class="panel" aria-labelledby="comm-h">
-          <div class="panel__head"><h2 class="t-section" id="comm-h">Community rating</h2><span class="t-meta">Plain average</span></div>
-          <div id="communityBody">${communityHTML()}</div>
-        </section>
-
-        <section class="panel" id="yourRating" aria-labelledby="you-h">
-          <div class="panel__head"><h2 class="t-section" id="you-h">Your rating</h2><span class="t-meta" id="ratedMeta">${ratedOn()}</span></div>
-          <div class="rating-panel rating-panel--bare">
-            <div id="rec">${recordSvg(S.score)}</div>
-            <div class="rating-panel__side">
-              <div class="rating-stat"><span class="t-meta">Your score</span><span class="score score--lg" id="myScore">${S.score || "–"}<small> /10</small></span></div>
-              <div><p class="t-label" id="pickLabel" style="margin-bottom:var(--s-2)">${S.mine ? "Change your score" : "Tap a score to rate"}</p>${pickerHTML()}
-                <p class="field__hint" id="rateStatus" role="status" aria-live="polite" style="margin-top:var(--s-2)">${user ? "Saves as soon as you tap. A review is optional." : "Sign in to save your rating."}</p></div>
-            </div>
+    <article class="album2">
+      <header class="ahero">
+        ${album.cover_url ? `<div class="ahero__bg" aria-hidden="true"><img src="${esc(smallArt(album.cover_url))}" alt="" decoding="async" onerror="this.parentNode.remove()"></div>` : ""}
+        <div class="ahero__inner">
+          <div class="sleeve">
+            <div class="vinyl" aria-hidden="true">${vinylSvg(S.stats ? S.stats.avg_score : "")}</div>
+            <div class="album__art">${artwork(album.cover_url, `${album.title} by ${album.artist}`, "", { priority: true })}</div>
           </div>
-        </section>
+          <div class="ahero__text">
+            <p class="eyebrow" id="albumEyebrow"${eyebrow() ? "" : " hidden"}>${esc(eyebrow())}</p>
+            <h1 class="ahero__title">${esc(album.title)}</h1>
+            <a class="ahero__artist" id="artistLink" href="${artistHref(album.artist_id)}">${esc(album.artist)}</a>
+            ${facts.length ? `<p class="ahero__facts">${facts.map((f, i) => `${i ? '<span class="dot" aria-hidden="true"></span>' : ""}<span>${esc(f)}</span>`).join("")}</p>` : ""}
+            ${genreLinks ? `<p class="ahero__genres" aria-label="Genres">${genreLinks}</p>` : ""}
+            <div class="figures" id="heroFigures" aria-label="Scores">${heroFigures()}</div>
+            <div class="album__actions">
+              ${button(S.mine ? "Edit your rating" : "Rate this album", { variant: "primary", id: "jumpRate", iconName: "star" })}
+              ${button("Share", { id: "shareBtn", iconName: "share" })}
+              <button type="button" class="btn" id="pinBtn" aria-pressed="${isPinned()}">${icon(isPinned() ? "check" : "pin")}<span>${isPinned() ? "Pinned to profile" : "Pin to profile"}</span></button>
+              ${button("Add to list", { id: "listBtn", iconName: "list" })}
+            </div>
+            <div id="statusWrap" class="status-wrap">${statusHTML()}</div>
+          </div>
+        </div>
+      </header>
 
-        <section class="block">
-          <div class="block__head"><h2 class="t-section">Tracklist</h2>${album.tracks?.length ? `<span class="t-meta">Star your standouts</span>` : ""}</div>
-          ${album.tracks?.length ? `<ol class="tracks" id="tracks">${album.tracks.map((t) => `
-            <li class="track${S.standouts.has(t.title) ? " is-standout" : ""}">
-              <span class="track__pos">${esc(t.pos)}</span><span class="track__title">${esc(t.title)}</span>
-              <span class="track__len">${fmtLen(t.length)}</span>
-              <button type="button" class="icon-btn" data-t="${esc(t.title)}" aria-pressed="${S.standouts.has(t.title)}" aria-label="Standout: ${esc(t.title)}">${icon("star")}</button>
-            </li>`).join("")}</ol>`
-            : emptyState({ iconName: "note", title: "No tracklist listed", body: "MusicBrainz doesn't have tracks for this album yet. You can still score it.", plain: true })}
-        </section>
+      <div class="album-body">
+        <div class="album-body__main">
+          <section class="rate" id="yourRating" aria-labelledby="you-h">
+            <div class="kicker"><h2 id="you-h">Your rating</h2><span class="t-meta" id="ratedMeta">${ratedOn()}</span></div>
+            <div class="rate__row">
+              <div id="rec">${recordSvg(S.score)}</div>
+              <div class="rate__side">
+                <div class="rating-stat"><span class="t-meta">Your score</span><span class="score score--lg" id="myScore">${S.score || "–"}<small> /10</small></span></div>
+                <p class="t-label" id="pickLabel">${S.mine ? "Change your score" : "Tap a score to rate"}</p>
+              </div>
+            </div>
+            ${pickerHTML()}
+            <p class="field__hint" id="rateStatus" role="status" aria-live="polite">${user ? "Saves as soon as you tap. A review is optional." : "Sign in to save your rating."}</p>
+          </section>
 
-        <section class="block">
-          <label class="field"><span class="t-section">Your review <span class="t-meta">Optional</span></span>
-            <textarea id="thoughts" class="textarea" maxlength="2000" placeholder="What stuck with you? Favorite moments, how it holds up, where it fits.">${esc(S.mine?.thoughts || "")}</textarea>
-          </label>
-          <label class="check"><input type="checkbox" id="isPublic"${shared ? " checked" : ""}><span>Share this review with the community</span></label>
-          <label class="check" id="creditField" hidden><input type="checkbox" id="creditProfile"${S.mine?.credit_profile ? " checked" : ""}><span>Credit this review to my profile${profile ? ` (@${esc(profile.username)})` : ""}</span></label>
-          <label class="field" id="nameField"${shared ? "" : " hidden"}><span class="field__label">Show as</span>
-            <input id="displayNameInput" class="input" maxlength="40" placeholder="Anonymous listener" value="${esc(S.mine?.display_name || "")}" autocomplete="off">
-          </label>
-          <span class="field__hint" id="reviewHint"></span>
-          <div><button type="button" class="btn btn--ghost btn--sm" id="delReview" data-danger="1"${S.mine?.thoughts ? "" : " hidden"}>${icon("close")}<span>Delete review</span></button></div>
-        </section>
+          <section class="block" aria-labelledby="trk-h">
+            <div class="kicker"><h2 id="trk-h">Tracklist</h2>${album.tracks?.length ? `<span class="t-meta">Star your standouts</span>` : ""}</div>
+            ${album.tracks?.length ? `<ol class="tracks" id="tracks">${album.tracks.map((t) => `
+              <li class="track${S.standouts.has(t.title) ? " is-standout" : ""}">
+                <span class="track__pos">${esc(t.pos)}</span><span class="track__title">${esc(t.title)}</span>
+                <span class="track__len">${fmtLen(t.length)}</span>
+                <button type="button" class="icon-btn" data-t="${esc(t.title)}" aria-pressed="${S.standouts.has(t.title)}" aria-label="Standout: ${esc(t.title)}">${icon("star")}</button>
+              </li>`).join("")}</ol>`
+              : emptyState({ iconName: "note", title: "No tracklist listed", body: "MusicBrainz doesn't have tracks for this album yet. You can still score it.", plain: true })}
+          </section>
 
-        <div class="save-bar">
-          <button type="button" class="btn btn--primary" id="save"><span>${S.mine ? "Save review and standouts" : "Save rating and review"}</span></button>
-          <button type="button" class="btn btn--ghost" id="remove" data-danger="1"${S.mine ? "" : " hidden"}><span>Remove rating</span></button>
+          <section class="block" aria-labelledby="rv-h">
+            <div class="kicker"><h2 id="rv-h">Your review</h2><span class="t-meta">Optional</span></div>
+            <label class="field"><span class="sr">Your review</span>
+              <textarea id="thoughts" class="textarea" maxlength="2000" placeholder="What stuck with you? Favorite moments, how it holds up, where it fits.">${esc(S.mine?.thoughts || "")}</textarea>
+            </label>
+            <label class="check"><input type="checkbox" id="isPublic"${shared ? " checked" : ""}><span>Share this review with the community</span></label>
+            <label class="check" id="creditField" hidden><input type="checkbox" id="creditProfile"${S.mine?.credit_profile ? " checked" : ""}><span>Credit this review to my profile${profile ? ` (@${esc(profile.username)})` : ""}</span></label>
+            <label class="field" id="nameField"${shared ? "" : " hidden"}><span class="field__label">Show as</span>
+              <input id="displayNameInput" class="input" maxlength="40" placeholder="Anonymous listener" value="${esc(S.mine?.display_name || "")}" autocomplete="off">
+            </label>
+            <span class="field__hint" id="reviewHint"></span>
+            <div><button type="button" class="btn btn--ghost btn--sm" id="delReview" data-danger="1"${S.mine?.thoughts ? "" : " hidden"}>${icon("close")}<span>Delete review</span></button></div>
+            <div class="save-bar">
+              <button type="button" class="btn btn--primary" id="save"><span>${S.mine ? "Save review and standouts" : "Save rating and review"}</span></button>
+              <button type="button" class="btn btn--ghost" id="remove" data-danger="1"${S.mine ? "" : " hidden"}><span>Remove rating</span></button>
+            </div>
+          </section>
+
+          <section class="block" id="reviews" aria-labelledby="rev-h">
+            <div class="kicker"><h2 id="rev-h">Community reviews</h2><span class="t-meta" id="revCount" role="status" aria-live="polite"></span></div>
+            ${reviews.length > 1 ? `<label class="field field--inline"><span class="sr">Sort reviews</span><select class="select" id="revSort" aria-label="Sort reviews">
+              <option value="recent">Most recent</option><option value="high">Highest rated</option><option value="low">Lowest rated</option><option value="liked">Most liked</option></select></label>` : ""}
+            <div id="revList"></div><div id="revMore"></div>
+          </section>
         </div>
 
-        <section class="block" id="reviews" aria-labelledby="rev-h">
-          <div class="block__head"><h2 class="t-section" id="rev-h">Community reviews</h2><span class="t-meta" id="revCount" role="status" aria-live="polite"></span></div>
-          ${reviews.length > 1 ? `<label class="field field--inline"><span class="sr">Sort reviews</span><select class="select" id="revSort" aria-label="Sort reviews">
-            <option value="recent">Most recent</option><option value="high">Highest rated</option><option value="low">Lowest rated</option><option value="liked">Most liked</option></select></label>` : ""}
-          <div id="revList"></div><div id="revMore"></div>
-        </section>
+        <aside class="album-body__side" aria-label="Community">
+          <section class="aside-block" aria-labelledby="comm-h">
+            <div class="kicker"><h2 id="comm-h">Community rating</h2><span class="t-meta">Plain average</span></div>
+            <div id="communityBody">${communityHTML()}</div>
+          </section>
+        </aside>
       </div>
     </article>
     <div id="albumMore"></div>`;
@@ -1459,6 +1483,7 @@ async function renderAlbum(id) {
     $("#save span").textContent = S.mine ? "Save review and standouts" : "Save rating and review";
     $("#remove").hidden = !S.mine;
     $("#delReview").hidden = !S.mine?.thoughts;
+    paintHero();
   };
   const paintStatus = () => {
     const focused = document.activeElement?.dataset?.st;
@@ -1466,7 +1491,15 @@ async function renderAlbum(id) {
     if (focused) $(`#statusWrap [data-st="${focused}"]`)?.focus();
     $$("#statusWrap .btn").forEach((b) => b.setAttribute("aria-busy", String(S.statusBusy)));
   };
-  const paintCommunity = () => { $("#communityBody").innerHTML = communityHTML(); };
+  // The big numbers in the hero (community average and your own score) follow the same state as the panels below
+  const paintHero = () => {
+    const f = $("#heroFigures"); if (!f) return;
+    $("#heroAvg").textContent = S.stats ? S.stats.avg_score : "–";
+    $("#heroCount").textContent = S.stats ? `Community · ${plural(S.stats.rating_count, "rating")}` : "No ratings yet";
+    $("#heroMine").textContent = S.score || "–";
+    const t = $(".vinyl__text"); if (t) t.textContent = S.stats ? S.stats.avg_score : "";
+  };
+  const paintCommunity = () => { $("#communityBody").innerHTML = communityHTML(); paintHero(); };
   const refreshCommunity = async () => {
     const [s, c] = await Promise.all([
       sb.from("album_stats").select("avg_score, rating_count").eq("album_id", id).maybeSingle(),
@@ -2905,6 +2938,8 @@ function routeInner() {
 }
 window.addEventListener("hashchange", route);
 
+// Album page backdrop fades out as you scroll so the content below sits on the plain page color
+window.addEventListener("scroll", () => { const bg = document.querySelector(".ahero__bg"); if (bg) bg.style.opacity = String(Math.max(0, 1 - window.scrollY / 700)); }, { passive: true });
 // On phones, tuck the nav away while scrolling down; bring it back on scroll up
 let lastY = 0;
 window.addEventListener("scroll", () => {
