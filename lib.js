@@ -72,6 +72,50 @@
   }
   const yearsWithRatings = (rows) => [...new Set(rows.map((r) => String(r.first_rated_at || "").slice(0, 4)).filter((y) => /^\d{4}$/.test(y)))].sort().reverse();
 
+  /* ---------- Stats dashboard ---------- */
+  // Dates are plain YYYY-MM-DD strings, compared as text, so time zones never shift a day.
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // Seven rows (Sun..Sat) x up to 53 week columns ending at `today`. A cell is { date, n } or null (outside the 12-month window).
+  function heatmapOf(rows, today = new Date()) {
+    const counts = new Map();
+    rows.forEach((r) => { const d = String(r.first_rated_at || "").slice(0, 10); if (/^\d{4}-\d{2}-\d{2}$/.test(d)) counts.set(d, (counts.get(d) || 0) + 1); });
+    const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const start = new Date(end); start.setFullYear(start.getFullYear() - 1); start.setDate(start.getDate() + 1);
+    const first = new Date(start); first.setDate(first.getDate() - first.getDay());   // back up to the Sunday
+    const weeks = []; let total = 0, active = 0, max = 0, run = 0, longest = 0;
+    const cursor = new Date(first);
+    while (cursor <= end) {
+      const col = [];
+      for (let i = 0; i < 7; i++) {
+        if (cursor < start || cursor > end) col.push(null);
+        else {
+          const date = ymd(cursor), n = counts.get(date) || 0;
+          col.push({ date, n }); total += n; max = Math.max(max, n);
+          if (n) { active++; run++; longest = Math.max(longest, run); } else run = 0;
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      weeks.push(col);
+    }
+    return { weeks, total, active, max, longestStreak: longest, from: ymd(start), to: ymd(end) };
+  }
+  // Level 0-4 for a day. Scales to the busiest day so a light logger still sees contrast.
+  const heatLevel = (n, max) => (!n ? 0 : max <= 1 ? 4 : Math.min(4, Math.max(1, Math.ceil((n / max) * 4))));
+  // rows also carry release_date ("1991-09-24" or "1991") for the decade chart
+  function statsOf(rows, today = new Date()) {
+    const year = String(today.getFullYear());
+    const decades = new Map();
+    rows.forEach((r) => { const y = +String(r.release_date || "").slice(0, 4); if (y >= 1900 && y <= today.getFullYear()) { const d = Math.floor(y / 10) * 10; decades.set(d, (decades.get(d) || 0) + 1); } });
+    const decadeList = [...decades].sort((a, b) => a[0] - b[0]).map(([start, n]) => ({ start, n, label: start >= 2000 ? `${start}s` : `${String(start).slice(2)}s` }));
+    const gc = genreCounts(rows.filter((r) => (r.genres || []).length)), withGenre = rows.filter((r) => (r.genres || []).length).length;
+    const genres = gc.slice(0, 5).map((g) => ({ ...g, share: Math.round((g.n / Math.max(1, gc.reduce((s, x) => s + x.n, 0))) * 100) }));
+    const mine = rows.filter((r) => String(r.first_rated_at || "").slice(0, 4) === year), a = new Map();
+    mine.forEach((r) => { const x = a.get(r.artist) || { name: r.artist, n: 0, sum: 0, cover_url: r.cover_url }; x.n++; x.sum += r.score; a.set(r.artist, x); });
+    const artists = [...a.values()].sort((p, q) => q.n - p.n || q.sum / q.n - p.sum / p.n || p.name.localeCompare(q.name)).slice(0, 3).map((x) => ({ name: x.name, n: x.n, avg: round1(x.sum / x.n), cover_url: x.cover_url }));
+    return { n: rows.length, avg: round1(mean(rows.map((r) => r.score))), year: +year, decades: decadeList, decadeCount: decadeList.reduce((s, d) => s + d.n, 0),
+      genres, withGenre, artists, heat: heatmapOf(rows, today) };
+  }
+
   /* ---------- Recommendations ---------- */
   // groups: [{ rule, items: [{ id?, title, artist, ... , why }] }] in priority order.
   // Removes anything already rated (by id or by title+artist), de-duplicates, keeps priority order.
@@ -134,5 +178,5 @@
     return Math.floor(rand() * Math.max(1, reachable - limit + 1));
   }
 
-  root.RotationLib = { lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  root.RotationLib = { lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);

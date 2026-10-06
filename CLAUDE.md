@@ -49,6 +49,11 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Taste comparison (`#/compare/<user>`) needs 10+ shared ratings before any similarity % is shown; genre overlap needs 8+ rated albums with genres each.
 - Year in Rotation (`#/year/<y>`, `#/u/<name>/year/<y>`) uses `first_rated_at` (not edit time), only real ratings, and says it is not listening time.
   The PNG export is drawn on a canvas as text and charts only: album artwork is never copied into exported files (rights holders' artwork).
+- Stats dashboard (`#/stats`, `renderStats`; linked from the account menu and the shelf header): listening-diary heatmap (12 months, counted by `first_rated_at`,
+  never called listening time), decades (from `albums.release_date`), top-5 genre donut, top 3 artists of the current year, and "You might like" (same `buildRecs`
+  engine and sessionStorage cache as the home page). Pure logic is `RL.statsOf` / `heatmapOf` / `heatLevel` (tested). Charts are hand-rolled SVG/CSS: no chart library,
+  no React/Tailwind (the app has no build step). `#/stats/sample` is a clearly labeled demo built from fake rows (`sampleRows`, `SAMPLE_RECS`); it is the only place
+  made-up data may appear, and the page must say so. Signed-out visitors to `#/stats` see the sample.
 - Recommendations (`buildRecs`): explainable rules (similar listeners, artists, genres, charts), never includes rated albums; under 3 ratings it shows
   general discovery labeled as such. `recs_from_similar_listeners` (schema v9) returns aggregates only, needs 2+ similar listeners.
 - Quality rules: every page gets a title + description via `setPageMeta` (hash URLs mean non-script crawlers only see index.html defaults; real SEO

@@ -141,6 +141,31 @@ test("spreadNote needs 10 ratings and real camps on both sides", () => {
   eq(L.spreadNote([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), "");
 });
 
+/* ---- stats dashboard ---- */
+test("heatmap: covers 12 months, counts per day, ignores bad dates", () => {
+  const today = new Date(2026, 9, 6);
+  const h = L.heatmapOf([row("a", 8, { at: "2026-10-06T10:00:00Z" }), row("b", 7, { at: "2026-10-06T22:00:00Z" }), row("c", 6, { at: "2026-10-05T01:00:00Z" }), row("d", 6, { at: "2024-01-01T00:00:00Z" }), row("e", 6, { at: "nope" })], today);
+  eq(h.to, "2026-10-06"); eq(h.from, "2025-10-07");
+  eq(h.total, 3, "old and invalid rows are left out"); eq(h.active, 2); eq(h.max, 2); eq(h.longestStreak, 2);
+  ok(h.weeks.length >= 52 && h.weeks.length <= 54, "about a year of weeks");
+  const cells = h.weeks.flat().filter(Boolean);
+  eq(cells.length, 365, "one cell per day");
+  eq(cells.find((c) => c.date === "2026-10-06").n, 2);
+});
+test("heatLevel scales to the busiest day", () => {
+  eq(L.heatLevel(0, 5), 0); eq(L.heatLevel(1, 1), 4); eq(L.heatLevel(1, 8), 1); eq(L.heatLevel(8, 8), 4);
+});
+test("stats: decades, top genres, top artists this year", () => {
+  const today = new Date(2026, 9, 6);
+  const rows = [
+    { ...row("a", 9, { artist: "X", genres: ["rock"] }), release_date: "1991-09-24" }, { ...row("b", 7, { artist: "X", genres: ["rock", "pop"] }), release_date: "1975" },
+    { ...row("c", 8, { artist: "Y", genres: ["pop"], at: "2025-02-02T00:00:00Z" }), release_date: "2012-05-01" }, { ...row("d", 5, { artist: "Z" }), release_date: "" }];
+  const s = L.statsOf(rows, today);
+  eq(s.decades.map((d) => d.label), ["70s", "90s", "2010s"]); eq(s.decadeCount, 3, "albums without a date are not counted");
+  eq(s.genres[0], { name: "pop", n: 2, share: 50 }, "ties sort by name"); eq(s.withGenre, 3);
+  eq(s.artists.map((a) => a.name), ["X", "Z"], "only 2026 ratings, most albums first"); eq(s.artists[0].avg, 8);
+});
+
 document.getElementById("summary").textContent = `${pass} passed, ${fail} failed`;
 document.getElementById("summary").style.color = fail ? "#f07d73" : "#5ecfb1";
 </script>

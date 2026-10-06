@@ -908,3 +908,53 @@ main { min-height: 100vh; min-height: 100svh; }
 .ahero__genres { gap: 0 var(--s-1); }
 .ahero__genres a, .ahero__genres span:not(.slash) { display: inline-flex; align-items: center; min-height: 36px; padding-inline: var(--s-1); }
 .ahero__genres a { text-underline-offset: 4px; }
+/* ---------- Stats dashboard ---------- */
+.stats { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-8); min-width: 0; }
+.stats > * { min-width: 0; }
+.stats .page-head { margin-bottom: 0; }
+.stats .section { margin-bottom: 0; }
+.stats__sample { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); border: 1px dashed var(--warning); border-radius: var(--r-md); background: var(--warning-soft); color: var(--text); font-size: var(--fs-sm); }
+.stats__grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-4); }
+.stats__grid .panel + .panel { margin-top: 0; }
+.stats .panel .section__head { margin-bottom: 0; }
+.heat__scroll { overflow-x: auto; padding: var(--s-1) 0 var(--s-2); }
+.heat { display: grid; grid-template-columns: 28px repeat(var(--cols), minmax(10px, 1fr)); grid-template-rows: 16px repeat(7, auto); gap: 3px; min-width: 720px; outline-offset: 4px; border-radius: var(--r-sm); }
+.heat__cell { aspect-ratio: 1; border-radius: 2px; background: var(--surface-3); }
+.heat__cell[data-l="1"] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-3)); }
+.heat__cell[data-l="2"] { background: color-mix(in srgb, var(--accent) 52%, var(--surface-3)); }
+.heat__cell[data-l="3"] { background: color-mix(in srgb, var(--accent) 76%, var(--surface-3)); }
+.heat__cell[data-l="4"] { background: var(--accent); }
+.heat__cell:not(.heat__cell--key):hover, .heat__cell.is-active { outline: 2px solid var(--text); outline-offset: 1px; }
+.heat__cell--key { width: 12px; aspect-ratio: 1; }
+.heat__key { display: flex; align-items: center; gap: 4px; flex: none; }
+.heat__key .t-meta { margin: 0 4px; }
+.heat__month, .heat__day { font-size: var(--fs-xs); color: var(--text-3); line-height: 1; align-self: center; white-space: nowrap; }
+.heat__month { grid-row: 1; overflow: visible; }
+.heat__day { grid-column: 1; }
+.heat__tip { position: fixed; z-index: 60; pointer-events: none; padding: 6px 10px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--text); font-size: var(--fs-xs); white-space: nowrap; box-shadow: var(--shadow-pop); }
+.decades { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 8px; height: 190px; }
+.decades__col { display: grid; grid-template-rows: 16px minmax(0, 1fr) 16px; justify-items: center; gap: 4px; min-width: 0; }
+.decades .dist__bar { background: var(--accent); opacity: 1; max-width: 44px; margin: 0 auto; }
+.donut { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: var(--s-6); align-items: center; }
+.donut__svg { width: 100%; height: auto; display: block; }
+.donut__num { font-family: var(--font-display); font-size: 7px; fill: var(--text); }
+.donut__cap { font-size: 2.6px; fill: var(--text-3); }
+.donut__legend { list-style: none; display: grid; gap: var(--s-3); margin: 0; padding: 0; min-width: 0; }
+.donut__legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
+.donut__dot { width: 10px; height: 10px; border-radius: 50%; }
+.donut__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; font-size: var(--fs-base); }
+.toplist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); }
+.toplist__item { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: var(--s-4); align-items: center; padding: var(--s-4); border-top: 1px solid var(--border-strong); }
+.toplist__rank { font-family: var(--font-display); font-size: var(--fs-2xl); line-height: 1; color: var(--text-3); min-width: 1ch; }
+.toplist__text { display: grid; gap: 2px; min-width: 0; }
+.toplist__name { font-size: var(--fs-md); font-weight: var(--fw-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 860px) {
+  .stats__grid, .toplist { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .donut { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+  .donut__svg { max-width: 220px; }
+  .donut__legend { justify-self: stretch; }
+  .heat__key { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) { .donut__arc { transition: stroke-dasharray var(--dur) var(--ease); } }

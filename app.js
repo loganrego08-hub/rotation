@@ -340,6 +340,7 @@ function renderAccount() {
     <div class="menu menu--account" id="acctMenu" role="menu" hidden>
       <div class="menu__label">${esc(user.email)}</div>
       <a class="menu__item" role="menuitem" href="#/me">${icon("disc")}Your shelf</a>
+      <a class="menu__item" role="menuitem" href="#/stats">${icon("star")}Your stats</a>
       <a class="menu__item" role="menuitem" href="${profile ? profileHref(profile.username) : "#/me/edit"}">${icon("user")}${profile ? "Your profile" : "Create profile"}</a>
       <a class="menu__item" role="menuitem" href="#/lists/yours">${icon("list")}Your lists</a>
       <a class="menu__item" role="menuitem" href="#/feed">${icon("spark")}Following</a>
@@ -1172,8 +1173,8 @@ async function renderProfile() {
         { label: "Albums rated", value: rows.length }, { label: "Average score", value: avg },
         { label: "Standout tracks", value: standouts }, { label: "Top genre", value: topGenre }],
         extra: `<div class="chips" style="margin-top:var(--s-4)">${profile
-          ? `${button("View public profile", { size: "sm", href: profileHref(profile.username), iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `#/year/${thisYear()}`, iconName: "star" })}${button("Edit profile", { size: "sm", href: "#/me/edit", iconName: "note" })}<span class="t-meta" style="align-self:center">${profile.is_public ? "Public" : "Private until you make it public"}</span>`
-          : `${button("Create your profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `#/year/${thisYear()}`, iconName: "star" })}<span class="t-meta" style="align-self:center">Pin favorites, share lists and let people follow you.</span>`}</div>` })}
+          ? `${button("View public profile", { size: "sm", href: profileHref(profile.username), iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `#/year/${thisYear()}`, iconName: "star" })}${button("Stats", { size: "sm", href: "#/stats", iconName: "star" })}${button("Edit profile", { size: "sm", href: "#/me/edit", iconName: "note" })}<span class="t-meta" style="align-self:center">${profile.is_public ? "Public" : "Private until you make it public"}</span>`
+          : `${button("Create your profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `#/year/${thisYear()}`, iconName: "star" })}${button("Stats", { size: "sm", href: "#/stats", iconName: "star" })}<span class="t-meta" style="align-self:center">Pin favorites, share lists and let people follow you.</span>`}</div>` })}
       ${tabs(Object.entries(LIB_VIEWS).map(([k, v]) => [k, `${v.label} (${count(k)})`]), profileTab, "Library views")}
       <div class="toolbar toolbar--lib">
         <label class="search search--lib"><span class="sr">Filter by title or artist</span>${icon("search", "search__icon")}
@@ -2868,6 +2869,172 @@ async function exportRecapImage(r, handle, who) {
 }
 
 /* ==========================================================================
+   Stats dashboard (#/stats): listening diary heatmap, decades, genres, top artists, picks.
+   Everything is computed from the viewer's own ratings (see RL.statsOf). The diary counts the day each album was first
+   rated, not listening time. Signed-out visitors can open #/stats/sample, a clearly labeled demo made of fake data.
+   ========================================================================== */
+const SAMPLE_POOL = [
+  ["Nevermind", "Nirvana", ["grunge", "rock"], "1991-09-24"], ["OK Computer", "Radiohead", ["alternative rock", "art rock"], "1997-05-21"], ["Blue", "Joni Mitchell", ["folk", "singer-songwriter"], "1971-06-22"],
+  ["Kind of Blue", "Miles Davis", ["jazz"], "1959-08-17"], ["Purple Rain", "Prince", ["pop", "funk"], "1984-06-25"], ["Rumours", "Fleetwood Mac", ["rock", "pop"], "1977-02-04"],
+  ["To Pimp a Butterfly", "Kendrick Lamar", ["hip hop"], "2015-03-15"], ["Currents", "Tame Impala", ["psychedelic pop", "pop"], "2015-07-17"], ["Illmatic", "Nas", ["hip hop"], "1994-04-19"],
+  ["Remain in Light", "Talking Heads", ["new wave", "art rock"], "1980-10-08"], ["Random Access Memories", "Daft Punk", ["electronic", "disco"], "2013-05-17"], ["The Dark Side of the Moon", "Pink Floyd", ["progressive rock", "rock"], "1973-03-01"],
+  ["Is This It", "The Strokes", ["indie rock", "rock"], "2001-07-30"], ["Lemonade", "Beyoncé", ["r&b", "pop"], "2016-04-23"], ["Hunky Dory", "David Bowie", ["rock", "art rock"], "1971-12-17"],
+  ["Gold", "Ryan Adams", ["rock", "folk"], "2001-09-25"], ["Discovery", "Daft Punk", ["electronic", "house"], "2001-03-12"], ["Abbey Road", "The Beatles", ["rock", "pop"], "1969-09-26"],
+  ["Pet Sounds", "The Beach Boys", ["pop", "psychedelic pop"], "1966-05-16"], ["In Rainbows", "Radiohead", ["alternative rock", "art rock"], "2007-10-10"], ["Brothers", "The Black Keys", ["blues rock", "rock"], "2010-05-18"],
+  ["Mezzanine", "Massive Attack", ["trip hop", "electronic"], "1998-04-20"], ["Madvillainy", "Madvillain", ["hip hop"], "2004-03-23"], ["Sound of Silver", "LCD Soundsystem", ["electronic", "indie rock"], "2007-03-12"],
+];
+function sampleRows(today = new Date()) {
+  let s = 20260; const rnd = () => { s |= 0; s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const rows = [];
+  for (let back = 0; back < 360; back++) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - back);
+    const busy = rnd() < (d.getDay() === 0 || d.getDay() === 6 ? 0.34 : 0.18);   // weekends are heavier
+    if (!busy) continue;
+    const n = rnd() < 0.8 ? 1 : rnd() < 0.7 ? 2 : 3;
+    for (let k = 0; k < n; k++) {
+      const a = SAMPLE_POOL[Math.floor(rnd() * SAMPLE_POOL.length)];
+      rows.push({ album_id: `sample-${rows.length}`, title: a[0], artist: a[1], genres: a[2], release_date: a[3], cover_url: null, score: 5 + Math.floor(rnd() * 6),
+        first_rated_at: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T12:00:00Z` });
+    }
+  }
+  return rows;
+}
+const SAMPLE_RECS = [
+  { title: "Loveless", artist: "My Bloody Valentine", why: "Because you rated Nevermind 9/10" }, { title: "Kid A", artist: "Radiohead", why: "Because you rated OK Computer 10/10" },
+  { title: "Court and Spark", artist: "Joni Mitchell", why: "Because you rated Blue 9/10" }, { title: "A Love Supreme", artist: "John Coltrane", why: "Because you rated Kind of Blue 10/10" },
+  { title: "Sign o' the Times", artist: "Prince", why: "You rate Prince 9 on average" }, { title: "Fetch the Bolt Cutters", artist: "Fiona Apple", why: "Because you rated Lemonade 8/10" },
+];
+const DONUT_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "var(--text-2)", "var(--text-3)"];
+
+function heatmapHTML(h) {
+  const dayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  let lastMonth = -1;
+  const labels = h.weeks.map((col, wi) => {
+    const first = col.find(Boolean); if (!first) return "";
+    const m = +first.date.slice(5, 7) - 1;
+    if (m === lastMonth) return ""; lastMonth = m;
+    return wi + 3 > h.weeks.length ? "" : `<span class="heat__month" style="grid-column:${wi + 2}">${MONTHS[m]}</span>`;
+  }).join("");
+  const cells = h.weeks.map((col, wi) => col.map((c, di) => !c ? "" :
+    `<span class="heat__cell" data-l="${RL.heatLevel(c.n, h.max)}" data-date="${c.date}" data-n="${c.n}" style="grid-column:${wi + 2};grid-row:${di + 2}"></span>`).join("")).join("");
+  const days = [1, 3, 5].map((d) => `<span class="heat__day" style="grid-row:${d + 2}">${dayName[d]}</span>`).join("");
+  return `<div class="heat__scroll" id="heatScroll"><div class="heat" id="heat" tabindex="0" role="group" aria-describedby="heatSum" style="--cols:${h.weeks.length}">${labels}${days}${cells}</div></div>
+    <p class="sr" id="heatLive" role="status" aria-live="polite"></p><div class="heat__tip" id="heatTip" role="presentation" hidden></div>`;
+}
+function wireHeatmap(prefix) {
+  const heat = $("#heat"), tip = $("#heatTip"), live = $("#heatLive");
+  if (!heat) return;
+  $("#heatScroll").scrollLeft = 99999;   // newest weeks first on small screens
+  const cells = () => $$(".heat__cell", heat);
+  const label = (c) => `${fmtDate(c.dataset.date)}: ${c.dataset.n === "0" ? "no albums" : plural(+c.dataset.n, "album")} ${prefix}`;
+  const show = (c) => {
+    tip.textContent = label(c); tip.hidden = false;
+    const r = c.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    tip.style.left = Math.max(8, Math.min(innerWidth - t.width - 8, r.left + r.width / 2 - t.width / 2)) + "px";
+    tip.style.top = (r.top - t.height - 8 < 8 ? r.bottom + 8 : r.top - t.height - 8) + "px";
+  };
+  const hide = () => { tip.hidden = true; };
+  heat.addEventListener("pointerover", (e) => { const c = e.target.closest(".heat__cell"); if (c) show(c); else hide(); });
+  heat.addEventListener("pointerleave", hide);
+  heat.addEventListener("click", (e) => { const c = e.target.closest(".heat__cell"); if (c) show(c); });
+  $("#heatScroll").addEventListener("scroll", hide, { passive: true });
+  // Keyboard: arrows move through days, the tooltip text is announced
+  let at = null;
+  heat.addEventListener("keydown", (e) => {
+    const all = cells(); if (!all.length) return;
+    const step = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1, Home: -1e9, End: 1e9 }[e.key];
+    if (step == null) return;
+    e.preventDefault();
+    at = Math.max(0, Math.min(all.length - 1, (at == null ? all.length - 1 : at) + step));
+    $$(".heat__cell.is-active", heat).forEach((x) => x.classList.remove("is-active"));
+    const c = all[at]; c.classList.add("is-active"); c.scrollIntoView({ block: "nearest", inline: "center" }); show(c); live.textContent = label(c);
+  });
+  heat.addEventListener("blur", () => { hide(); $$(".heat__cell.is-active", heat).forEach((x) => x.classList.remove("is-active")); at = null; });
+}
+function donutHTML(genres, withGenre) {
+  if (!genres.length) return `<p class="t-meta">No genre data yet. Genres come from MusicBrainz tags, and some albums have none.</p>`;
+  let off = 25;   // start at 12 o'clock
+  const total = genres.reduce((s, g) => s + g.share, 0) || 1;
+  const arcs = genres.map((g, i) => { const len = (g.share / total) * 100, el = `<circle class="donut__arc" cx="21" cy="21" r="15.9155" fill="none" stroke="${DONUT_COLORS[i]}" stroke-width="5.5" stroke-dasharray="${Math.max(0, len - 0.8)} ${100 - Math.max(0, len - 0.8)}" stroke-dashoffset="${off}"/>`; off -= len; return el; }).join("");
+  return `<div class="donut"><svg viewBox="0 0 42 42" class="donut__svg" role="img" aria-label="Top genres: ${genres.map((g) => `${esc(g.name)} ${g.share}%`).join(", ")}"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="var(--surface-3)" stroke-width="5.5"/>${arcs}
+      <text x="21" y="20.5" text-anchor="middle" class="donut__num">${withGenre}</text><text x="21" y="26" text-anchor="middle" class="donut__cap">albums</text></svg>
+    <ul class="donut__legend">${genres.map((g, i) => `<li><span class="donut__dot" style="background:${DONUT_COLORS[i]}" aria-hidden="true"></span><span class="donut__name">${esc(g.name)}</span><span class="t-meta">${g.share}% · ${g.n}</span></li>`).join("")}</ul></div>`;
+}
+function decadesHTML(ds) {
+  if (!ds.length) return `<p class="t-meta">No release dates yet for your rated albums.</p>`;
+  const max = Math.max(...ds.map((d) => d.n), 1);
+  return `<div class="decades" style="--n:${ds.length}" role="img" aria-label="Albums by release decade: ${ds.map((d) => `${d.label} ${d.n}`).join(", ")}">${ds.map((d) => `
+    <div class="decades__col" title="${d.label}: ${plural(d.n, "album")}"><span class="dist__n">${d.n}</span><span class="dist__track"><span class="dist__bar" style="height:${Math.max(4, Math.round((d.n / max) * 100))}%"></span></span><span class="dist__label">${d.label}</span></div>`).join("")}</div>`;
+}
+
+async function renderStats(sampleMode) {
+  const demo = sampleMode || !user;
+  setPageMeta(demo ? "Sample stats · Rotation" : "Your stats · Rotation", "Your listening diary, decades, genres and favorite artists on Rotation.");
+  if (!sb && !demo) { view().innerHTML = errorState({ title: "Stats aren't available", compact: false }); return; }
+  view().innerHTML = `${loadingLabel("Loading your stats")}<header class="page-head"><div class="sk sk-line" style="height:36px;width:40%"></div></header><div class="sk" style="height:200px;border-radius:var(--r-lg)"></div>`;
+  let rows, ratings = [];
+  const today = new Date();
+  try {
+    if (demo) rows = sampleRows(today);
+    else {
+      ratings = await myRatings();
+      rows = ratings.map((r) => ({ album_id: r.album.id, title: r.album.title, artist: r.album.artist, cover_url: r.album.cover_url, genres: r.album.genres || [], release_date: r.album.release_date, score: r.score, first_rated_at: r.created_at }));
+    }
+  } catch { view().innerHTML = errorState({ title: "Couldn't load your stats", retry: () => renderStats(sampleMode), compact: false }); return; }
+  if (!rows.length) {
+    view().innerHTML = emptyState({ iconName: "disc", compact: false, title: "Nothing to chart yet", body: "Rate a few albums and your diary, decades and genres appear here.",
+      actions: `${button("Find an album", { variant: "primary", href: "#/search", iconName: "search" })}${button("See a sample", { href: "#/stats/sample" })}` });
+    return;
+  }
+  const S = RL.statsOf(rows, today), h = S.heat;
+  const sampleBanner = demo ? `<p class="stats__sample" role="note"><strong>Sample data.</strong> These numbers are made up to show the layout. ${user ? button("See your own stats", { size: "sm", href: "#/stats" }) : `<a class="textlink" href="#/stats" id="statsSignIn">Sign in</a> to see yours.`}</p>` : "";
+  view().innerHTML = `
+    <div class="stats">
+    <header class="page-head"><p class="t-meta">${demo ? "Sample preview" : "Your stats"}</p><h1 class="t-title">Listening stats</h1>
+      <p class="t-lead">${S.n === 1 ? "1 rated album" : `${S.n} rated albums`}${S.avg != null ? `, averaging ${S.avg}` : ""}. Counted by the day each album was first rated; Rotation doesn't track play counts or listening time.</p>
+      ${sampleBanner}</header>
+
+    <section class="section panel" aria-labelledby="diary-h">
+      <div class="section__head"><div class="section__titles"><h2 class="t-section" id="diary-h">Listening diary</h2><p class="t-meta" id="heatSum">${plural(h.total, "album")} in the last 12 months · ${plural(h.active, "active day")} · longest streak ${plural(h.longestStreak, "day")}. Arrow keys move between days.</p></div>
+        <div class="heat__key" aria-hidden="true"><span class="t-meta">Less</span>${[0, 1, 2, 3, 4].map((l) => `<span class="heat__cell heat__cell--key" data-l="${l}"></span>`).join("")}<span class="t-meta">More</span></div></div>
+      ${heatmapHTML(h)}
+    </section>
+
+    <div class="stats__grid">
+      <section class="panel" aria-labelledby="dec-h"><div class="section__titles"><h2 class="t-section" id="dec-h">Decades</h2><p class="t-meta">${S.decadeCount} of ${S.n} albums have a release date</p></div>${decadesHTML(S.decades)}</section>
+      <section class="panel" aria-labelledby="gen-h"><div class="section__titles"><h2 class="t-section" id="gen-h">Top genres</h2><p class="t-meta">Each album counts toward its first two MusicBrainz genres</p></div>${donutHTML(S.genres, S.withGenre)}</section>
+    </div>
+
+    <section class="section">${sectionHead(`Top artists of ${S.year}`, { sub: "Most albums rated this year; ties go to the higher average" })}
+      ${S.artists.length ? `<ol class="toplist">${S.artists.map((a, i) => `<li class="toplist__item"><span class="toplist__rank">${i + 1}</span>${artwork(smallArt(a.cover_url), a.name, "thumb")}
+          <span class="toplist__text"><span class="toplist__name">${esc(a.name)}</span><span class="t-meta">${plural(a.n, "album")} rated · average ${a.avg}</span></span></li>`).join("")}</ol>`
+        : `<p class="t-meta">Nothing rated yet in ${S.year}.</p>`}</section>
+
+    <section class="section">${sectionHead("You might like", { sub: demo ? "Sample picks" : "", id: "statsRecWhy" })}
+      <div class="row" id="statsRecs">${skCards(6)}</div></section>
+    </div>`;
+  $("#statsSignIn")?.addEventListener("click", (e) => { e.preventDefault(); openAuth(); });
+  wireHeatmap(demo ? "(sample)" : "");
+
+  // Picks: same engine and cache as the home page; sample mode shows fixed demo cards
+  const recs = $("#statsRecs"), why = $("#statsRecWhy");
+  if (demo) { recs.innerHTML = SAMPLE_RECS.map((r) => albumCard({ ...r, art: null })).join(""); return; }
+  if (ratings.length < REC_MIN_RATINGS) {
+    why.textContent = "";
+    recs.outerHTML = `<div id="statsRecs">${emptyState({ iconName: "star", compact: true, title: "Rate a few albums to unlock picks", body: `Picks need ${plural(REC_MIN_RATINGS - ratings.length, "more rating")}. Until then we don't pretend to know your taste.` })}</div>`;
+    return;
+  }
+  why.textContent = "Matching genres, artists and similar listeners to what you rate highly…";
+  const sig = user.id + ":" + ratings.map((r) => r.album.id + r.score).join(",");
+  let picks; try { picks = JSON.parse(sessionStorage.getItem("recs6:" + sig) || "null"); } catch {}
+  if (!picks) { try { picks = await buildRecs(ratings); } catch { picks = { items: [], rules: [] }; } try { sessionStorage.setItem("recs6:" + sig, JSON.stringify(picks)); } catch {} }
+  if (!recs.isConnected) return;
+  why.textContent = picks.items.length ? "Albums you've rated are never shown." : "";
+  recs.innerHTML = picks.items.length ? picks.items.map((it) => albumCard(it)).join("")
+    : emptyState({ title: "No new picks right now", body: "Try Surprise me or browse hidden gems.", compact: true, actions: button("Surprise me", { variant: "primary", href: "#/surprise", iconName: "spark" }) });
+}
+
+/* ==========================================================================
    Router and nav
    ========================================================================== */
 // Page metadata. Rotation uses hash URLs, so crawlers that don't run scripts only see the defaults in index.html;
@@ -2918,6 +3085,8 @@ function routeInner() {
   if ((m = h.match(/^#\/genre\/([a-z-]+)/))) return renderGenre(m[1]);
   // Links from sign-up and reset emails come back with the session in the hash. Show the home page while it is processed.
   if (/^#(access_token|error|type=)/.test(h)) return renderHome();
+  if (h === "#/stats") return renderStats(false);
+  if (h === "#/stats/sample") return renderStats(true);
   if (h === "#/feed") return renderFeed();
   if (h === "#/notifications") return renderNotifications();
   if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})\/year\/(\d{4})$/i))) return renderRecap(m[1].toLowerCase(), m[2]);
