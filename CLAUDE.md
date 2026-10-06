@@ -98,16 +98,26 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Decade pages mix community-rated albums with a curated `DECADES` seed list (artwork via Apple, then Cover Art Archive).
 
 ## Design system (styles.css)
-- All values come from tokens in `:root`. Use tokens, never hard-coded colors or sizes.
-- Dark charcoal UI (#171717). Album artwork is the color; lime accent (#B9F36B) only for the
-  user's own actions and scores. Status colors always paired with an icon or label.
+- All values come from tokens in `:root`; use tokens, never hard-coded colors or sizes. The only color literals in the codebase are the token definitions
+  (plus the `theme-color` meta in index.html, which must equal `--bg`). Old names (`--surface-1/2/3`, `--text-2/3`, `--accent-ink`, `--danger`) are aliases of the new ones.
+- Warm near-black frame (`--bg` #0F0F10, `--surface`, `--raised`), album covers supply the color. ONE accent, amber `--accent` #F2A93B (+ hover/pressed, text on it is `--on-accent`):
+  primary buttons, links, active nav/tab, focus rings, selected states, starred tracks. Secondary buttons stay neutral.
+- Score ramp (cool to hot): `--score-low` 1-4, `--score-mid` 5-6, `--score-high` 7-8, `--score-top` 9-10. The ONE mapping is `RL.scoreTone(n)` in lib.js; HTML strings use
+  `RL.toneAttr(n)` (adds `data-tone`), live updates use `setTone(el, n)`, CSS reads `--score-c`. Used by score chips, tiles, the picker, the record, community averages, the histogram
+  and hero figures. The number is always printed too. Never color a rating with the functional colors.
+- Functional colors (`--success`, `--error`, `--info`; `--warning` is the accent) are for system states only, always with an icon or label. Chart movement is NOT red/green:
+  Up/Down are neutral text + arrow, New is accent, unchanged/re-entry are muted.
+- `--text-faint` is for disabled or decorative use only (3.45:1 on the page; it is currently unused). Form controls and the picker use `--border-control` (3:1); other borders are decorative.
+- Ambient tint: `applyAlbumTint` extracts the cover's dominant color on a 32px canvas (`RL.tintFromPixels`, saturation/lightness clamped, no tint for greyscale covers or
+  failed/CORS-blocked loads, cached per session) and sets `--album-tint` on `.album2`; `.album2::after` washes it in at 16% and fades in (not with reduced motion).
+- Light theme tokens exist as `:root[data-theme="light"]` and pass the same contrast audit, but nothing sets the attribute (no theme toggle). Review every screen before enabling.
+- Contrast audit (re-run after any token change): text, muted text and accent text 4.5:1 on all four surfaces, `--on-accent` on accent and every score color 4.5:1, ring and control borders 3:1.
 - Type: Newsreader (display serif) + Geist (UI). Keep headings restrained.
-- No gradients, glassmorphism, heavy shadows or neon. Respect reduced motion.
+- No glassmorphism, heavy shadows or neon. Gradients only as masks and the two scoped album-page washes (blurred cover backdrop, ambient tint). Respect reduced motion.
 - Components are HTML-string helpers in app.js: albumCard, artistCard, listCard, reviewCard,
   profileHeader, emptyState, errorState, skCards/skList, toast, tabs, button, scoreChip.
   Reuse them instead of writing new markup.
 - Artwork is always square (`.art`, aspect-ratio 1, object-fit cover).
-
 ## Content rules
 - Curated shelves (charts, recommendations) filter kids, sleep, karaoke, tribute and AI-filler
   albums via `keep()`. Search and rating still allow everything.
