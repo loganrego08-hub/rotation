@@ -5,8 +5,12 @@ const ARCHIVE = "https://raw.githubusercontent.com/utdata/rwd-billboard-data/mai
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const norm = (s) => String(s || "").toLowerCase().replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/[^a-z0-9]/g, "");
-const sameArtist = (a, b) => { a = norm(a); b = norm(b); return a && b && (a.includes(b.slice(0, 6)) || b.includes(a.slice(0, 6))); };
-const num = (v) => (/^\d+$/.test(String(v).trim()) ? +v : null);
+// Names must really match. (An earlier version accepted any album by the same artist, which put the wrong cover on an album Apple
+// didn't list, e.g. a single's art on "American Heartbreak".)
+const sameArtist = (a, b) => { a = norm(a); b = norm(b); return a.length >= 2 && b.length >= 2 && (a === b || (a.length >= 4 && b.includes(a)) || (b.length >= 4 && a.includes(b))); };
+// Titles match when equal, or when one is a close prefix of the other ("Cowboy Carter" and "Cowboy Carter (Deluxe)" are equal once the brackets go)
+const dropKind = (s) => String(s || "").replace(/\s+-\s+(single|ep)\s*$/i, "");   // Apple names these "Title - EP"
+const sameTitle = (a, b) => { a = norm(dropKind(a)); b = norm(dropKind(b)); if (!a || !b) return false; if (a === b) return true; const [s, l] = a.length <= b.length ? [a, b] : [b, a]; return s.length >= 6 && l.startsWith(s) && s.length / l.length >= 0.6; };const num = (v) => (/^\d+$/.test(String(v).trim()) ? +v : null);
 const decode = (s) => String(s || "").replace(/<[^>]+>/g, "").replace(/&nbsp;|&#160;/g, " ").replace(/&amp;/g, "&").replace(/&#0?39;|&#8217;|&rsquo;/g, "'")
   .replace(/&quot;|&#8220;|&#8221;/g, '"').replace(/&#8211;/g, "-").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/\s+/g, " ").trim();
 
@@ -82,27 +86,33 @@ async function addArt(items) {
   // Apple's top-albums feed covers most charting albums in one request
   try {
     const j = await (await fetch("https://itunes.apple.com/us/rss/topalbums/limit=200/json")).json();
-    const byTitle = new Map((j.feed.entry || []).map((e) => [norm(e["im:name"].label), { art: e["im:image"].at(-1).label, artist: e["im:artist"].label, genre: e.category?.attributes?.label }]));
+    const byTitle = new Map((j.feed.entry || []).map((e) => [norm(e["im:name"].label), { title: e["im:name"].label, art: e["im:image"].at(-1).label, artist: e["im:artist"].label, genre: e.category?.attributes?.label }]));
     items.forEach((it) => {
       const m = byTitle.get(norm(it.title));
-      if (m && sameArtist(m.artist, it.artist)) { it.art = m.art.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, "/600x600bb.jpg"); it.genre = m.genre; }
+      if (m && sameArtist(m.artist, it.artist) && sameTitle(m.title, it.title)) { it.art = m.art.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, "/600x600bb.jpg"); it.genre = m.genre; }
     });
   } catch {}
   const missing = items.filter((it) => !it.art);
+  const wantsSingle = (it) => /\b(single|ep)\b/i.test(it.title);
+  const pick = (results, it) => (results || []).filter((x) => x.collectionName && sameArtist(x.artistName, it.artist) && sameTitle(x.collectionName, it.title) && (wantsSingle(it) || !/\s-\s(single|ep)$/i.test(x.collectionName)))
+    .sort((p, q) => (norm(dropKind(q.collectionName)) === norm(it.title)) - (norm(dropKind(p.collectionName)) === norm(it.title)))[0];
   for (let i = 0; i < missing.length; i += 5) {
     await Promise.all(missing.slice(i, i + 5).map(async (it) => {
       try {
-        const q = new URLSearchParams({ term: `${it.artist} ${it.title}`, entity: "album", country: "us", limit: "3" });
-        const j = await (await fetch(`https://itunes.apple.com/search?${q}`)).json();
-        const hit = (j.results || []).find((x) => sameArtist(x.artistName, it.artist) && norm(x.collectionName).startsWith(norm(it.title).slice(0, 8)))
-          || (j.results || []).find((x) => sameArtist(x.artistName, it.artist));
+        let hit = null;
+        for (const [term, limit] of [[`${it.artist} ${it.title}`, 10], [it.title, 25]]) {
+          const q = new URLSearchParams({ term, entity: "album", country: "us", limit: String(limit) });
+          hit = pick((await (await fetch(`https://itunes.apple.com/search?${q}`)).json()).results, it);
+          if (hit) break;
+        }
         if (hit) { it.art = hit.artworkUrl100.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, "/600x600bb.jpg"); it.genre = hit.primaryGenreName; }
       } catch {}
     }));
   }
-  items.forEach((it) => { if (!it.art) it.art = it.fallbackArt || null; delete it.fallbackArt; });
+  // No confident match: leave the cover empty. The app looks the album up on MusicBrainz and the Cover Art Archive instead.
+  // (Billboard's own thumbnails are no longer used: they are often a different, older album.)
+  items.forEach((it) => { delete it.fallbackArt; });
 }
-
 module.exports = async (req, res) => {
   const slug = String(req.query.slug || "billboard-200").toLowerCase();
   if (!/^[a-z0-9-]{2,60}$/.test(slug)) return res.status(400).json({ error: "Bad chart slug" });

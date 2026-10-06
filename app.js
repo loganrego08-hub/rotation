@@ -770,6 +770,41 @@ async function myRatings(fields = "score, standout_tracks, thoughts, updated_at,
   return (data || []).filter((r) => r.album);
 }
 
+/* ---------- Missing covers ----------
+   Chart albums that Apple couldn't match with confidence arrive without art (better empty than the wrong album's cover).
+   Any card that links to a name lookup (#/find/artist/title) and has no picture gets one here from MusicBrainz and the Cover Art Archive:
+   the same source the album page uses. Looked up one at a time (MusicBrainz allows about one request a second), remembered for the session. */
+async function resolveCover(artist, title) {
+  const key = "cov2:" + norm(artist) + "|" + norm(title);
+  try { const hit = sessionStorage.getItem(key); if (hit !== null) return hit || null; } catch {}
+  let url = null;
+  try {
+    const clean = title.replace(/\s*[(\[](ep|single|deluxe[^)\]]*)[)\]]\s*$/i, ""), q = `${artist} ${clean}`, cands = await candidatesFor(q, { type: "any" }, { limit: 10 });
+    // Same title (exact for cast recordings and soundtracks, whose "artist" differs between sources) and the same artist
+    const best = RL.rankAlbums(q, cands, {}, {}).find((r) => { const ts = RL.textScore(clean, r.title); return ts >= 0.9 && (RL.textScore(artist, r.artist) >= 0.8 || (ts === 1 && /various|cast|soundtrack/i.test(`${artist} ${r.artist}`))); });
+    if (best) url = coverUrl(best.id, 500);
+    resolveCover.last = best ? `${best.title} | ${best.artist}` : null;   // for debugging in the console
+  } catch { return null; }   // a failed lookup isn't remembered, so it can be retried
+  try { sessionStorage.setItem(key, url || ""); } catch {}
+  return url;
+}
+let healing = false;
+async function healCovers() {
+  if (healing) return;
+  healing = true;
+  try {
+    const targets = $$('#view a[href^="#/find/"] .art:not(:has(img)):not([data-healed])').slice(0, 12);
+    for (const el of targets) {
+      el.dataset.healed = "1";
+      const [, artist, title] = decodeURIComponent((el.closest("a").getAttribute("href") || "").replace(/^#\/find\//, "")).match(/^([^/]*)\/(.*)$/) || [];
+      if (!artist || !title) continue;
+      const url = await resolveCover(artist, title);
+      if (url && el.isConnected) el.outerHTML = artwork(url, `${title} by ${artist}`, el.className.replace(/\bart\b/, "").replace(/\bis-healed\b/, "").trim());
+    }
+  } finally { healing = false; }
+}
+let healTimer;
+new MutationObserver(() => { clearTimeout(healTimer); healTimer = setTimeout(healCovers, 700); }).observe($("#view"), { childList: true, subtree: true });
 /* ---------- Discover (home) ----------
    Every section is fed by real data: community ratings from Supabase and this
    week's Billboard charts. When there isn't enough community activity yet, a
