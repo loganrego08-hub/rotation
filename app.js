@@ -157,7 +157,7 @@ const ICONS = {
   chevron: '<path d="m9 6 6 6-6 6"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
-  spark: '<path d="M12 4v4M12 16v4M4 12h4M16 12h4"/>',
+  spark: '<path d="M7 17 17 7M9 7h8v8"/>',   /* a plain diagonal arrow: no sparkle icons */
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/>',
   logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l-4-4 4-4M6 12h10"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',

@@ -72,16 +72,15 @@
   }
   const yearsWithRatings = (rows) => [...new Set(rows.map((r) => String(r.first_rated_at || "").slice(0, 4)).filter((y) => /^\d{4}$/.test(y)))].sort().reverse();
 
-  /* ---------- Score colors ----------
-     The ONE place a score becomes a color. Whole scores and averages both work (7.4 rounds to 7). The ramp runs cool to hot:
-     1-4 low, 5-6 mid, 7-8 high, 9-10 top, matching --score-low/mid/high/top in styles.css. The number is always printed too. */
+  /* ---------- Score formatting ----------
+     The ONE place a score gets its look. Numerals are ink; scores of 9 and 10 (averages round, so 8.5 and up) are vermilion.
+     There is no ramp. The number is always printed, so color is never the only signal. Whole scores and averages both work. */
   function scoreTone(n) {
     const v = Math.round(Number(n));
-    return !(v >= 1) ? "" : v <= 4 ? "low" : v <= 6 ? "mid" : v <= 8 ? "high" : "top";
+    return v >= 9 ? "top" : "";
   }
-  const scoreVar = (n) => (scoreTone(n) ? `var(--score-${scoreTone(n)})` : "var(--text-muted)");   // for canvas / inline use
-  const toneAttr = (n) => (scoreTone(n) ? ` data-tone="${scoreTone(n)}"` : "");                    // for HTML strings
-
+  const scoreVar = (n) => (scoreTone(n) ? "var(--accent-strong)" : "var(--text)");   // for canvas / inline use
+  const toneAttr = (n) => (scoreTone(n) ? ` data-tone="${scoreTone(n)}"` : "");      // for HTML strings
   /* ---------- Ambient album tint ----------
      pixels: RGBA bytes from a small canvas. Returns { h, s, l, css } (hue 0-360, s/l 0-1) or null when the cover has no real color
      (greyscale, near black, near white). Pixels vote for a hue bucket weighted by how colorful and mid-tone they are, so a big
