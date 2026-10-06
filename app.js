@@ -817,7 +817,7 @@ function homeSection(id, title, sub, { link, linkLabel } = {}) {
     <div class="section__body">${loadingLabel(`Loading ${title}`)}<div class="row">${skCards(7)}</div></div></section>`;
 }
 // load() resolves to { sub?, cards: [html], empty?: { title, body, actions } } and may throw
-function runSection(id, load, { defer = false } = {}) {
+function runSection(id, load, { defer = false, big = false } = {}) {
   const sec = $(`#${id}`);
   if (!sec) return;
   const run = async () => {
@@ -827,7 +827,7 @@ function runSection(id, load, { defer = false } = {}) {
       if (!sec.isConnected) return;
       if (r.sub != null) $(`#${id}-sub`).textContent = r.sub;
       const badge = $(`#${id}-badge`); if (badge && r.badge) { badge.textContent = r.badge; badge.hidden = false; }
-      body.innerHTML = r.cards?.length ? `<div class="row">${r.cards.join("")}</div>`
+      body.innerHTML = r.cards?.length ? (r.sheet ? sheetHTML(r) : `<div class="row${big ? " row--big" : ""}">${r.cards.join("")}</div>`)
         : emptyState({ iconName: "disc", compact: true, ...r.empty });
     } catch {
       if (!sec.isConnected) return;
@@ -873,10 +873,12 @@ async function loadNewReleases() {
 
 async function loadHighest() {
   const top = (await communityStats()).filter((s) => s.rating_count >= MIN_RATINGS).slice(0, 24);
-  if (top.length) return { sub: RANKING_NOTE, badge: "Community ranking", cards: top.map((s, i) => statCard(s, { rank: i + 1 })) };
+  if (top.length) return { sub: RANKING_NOTE, badge: "Community ranking", cards: top.map((s, i) => statCard(s, { rank: i + 1 })),
+    sheet: { href: `#/album/${top[0].album_id}`, art: top[0].cover_url, title: top[0].title, artist: top[0].artist } };
   const c = await billboard("billboard-200");
   return { badge: "Billboard chart", sub: `Albums need ${MIN_RATINGS}+ ratings to rank here. Until then, the most popular albums right now.`,
-    cards: c.items.slice(0, 14).map((it) => albumCard(it, { rank: it.rank })) };
+    cards: c.items.slice(0, 14).map((it) => albumCard(it, { rank: it.rank })),
+    sheet: { noCover: true } };   // the chart's number one is already the lead feature above, so no second big cover
 }
 
 // Calculated, not curated: 3 to 20 ratings (enough to trust, few enough to be undiscovered) averaging 8 or higher
@@ -931,18 +933,74 @@ async function loadRecent() {
   };
 }
 
+// Hero crate: this week's top three covers, overlapping like records in a bin, with a mono caption of real numbers.
+// The community line only appears once there are enough ratings for the number to mean something.
+const HERO_STAT_MIN_RATINGS = 25;
 async function loadHeroMosaic() {
   const el = $("#mosaic");
   if (!el) return;
   try {
     const c = await billboard("billboard-200");
     if (!el.isConnected) return;
-    const top = c.items.filter((x) => x.art).slice(0, 6);
-    if (top.length < 6) throw new Error("not enough art");
-    el.innerHTML = top.map((it) => `<a class="hero__cover" href="${albumHref(it)}" title="${esc(it.title)}, ${esc(it.artist)}">${artwork(it.art, `${it.title} by ${it.artist}`)}</a>`).join("");
-  } catch { el?.closest(".hero")?.classList.add("hero--solo"); el?.remove(); }
+    const top = c.items.filter((x) => x.art).slice(0, 3);
+    if (top.length < 3) throw new Error("not enough art");
+    el.innerHTML = top.map((it, i) => `<a class="hero__cover hero__cover--${i + 1}" href="${albumHref(it)}" title="${esc(it.title)}, ${esc(it.artist)}">${artwork(it.art, `${it.title} by ${it.artist}`)}</a>`).join("");
+    const cap = $("#mosaicCap");
+    if (cap) cap.innerHTML = `<span>Billboard 200 · week of ${esc(fmtDate(c.week, "short"))}</span>`;
+    if (sb && cap) {
+      const { data } = await sb.from("album_catalog").select("rating_count").gt("rating_count", 0).limit(1000);
+      const ratings = (data || []).reduce((s, r) => s + r.rating_count, 0);
+      if (cap.isConnected && ratings >= HERO_STAT_MIN_RATINGS) cap.insertAdjacentHTML("beforeend", `<span>${plural(data.length, "album")} rated · ${plural(ratings, "rating")}</span>`);
+    }
+  } catch { el?.closest(".hero")?.classList.add("hero--solo"); el?.closest(".hero__side")?.remove(); }
 }
 
+// Lead feature: the number one album on the Billboard 200 this week, large, with its real chart facts.
+// If you're signed in and have rated it, your own score is shown in vermilion.
+async function loadLead() {
+  const el = $("#leadFeature");
+  if (!el) return;
+  try {
+    const c = await billboard("billboard-200");
+    const it = c.items.find((x) => x.rank === 1 && x.art) || c.items.find((x) => x.art);
+    if (!it || !el.isConnected) throw new Error("no lead");
+    let mine = null;
+    if (user) { try { mine = (await myRatings("score, album:albums(id,title,artist)")).find((r) => keyOf(r.album) === keyOf(it))?.score ?? null; } catch {} }
+    const href = albumHref(it);
+    const facts = [it.move?.text, it.weeks != null ? `${plural(it.weeks, "week")} on the chart` : null, it.peak != null ? `Peak No. ${it.peak}` : null].filter(Boolean);
+    el.innerHTML = `${sectionHead("Number one this week", { link: "#/lists/charts", linkLabel: "Charts" }).replace("<h2", '<h2 id="lead-h"').replace("</h2>", '</h2><span class="badge">Billboard chart</span>')}
+      <div class="lead__inner">
+        <a class="sleeve lead__sleeve" href="${href}" aria-label="${esc(it.title)} by ${esc(it.artist)}"><div class="vinyl" aria-hidden="true">${vinylSvg("1")}</div><div class="album__art">${artwork(it.art, `${it.title} by ${it.artist}`)}</div></a>
+        <div class="lead__text">
+          <p class="eyebrow">Billboard 200 · week of ${esc(fmtDate(c.week, "short"))}</p>
+          <h3 class="lead__title"><a href="${href}">${esc(it.title)}</a></h3>
+          <p class="lead__artist">${esc(it.artist)}</p>
+          ${facts.length ? `<p class="lead__facts">${facts.map((f, i) => `${i ? '<span class="dot" aria-hidden="true"></span>' : ""}<span>${esc(f)}</span>`).join("")}</p>` : ""}
+          ${mine != null ? `<p class="lead__yours"><span class="t-label">Your score</span>${scoreChip(mine, { mine: true })}</p>` : ""}
+          <div class="lead__actions">${button(mine != null ? "Open album" : "Rate this album", { variant: "primary", href, iconName: "star" })}${button("All charts", { href: "#/lists/charts" })}</div>
+        </div></div>`;
+    el.hidden = false;
+  } catch { el.remove(); }
+}
+
+// "Highest rated": the number one cover large beside a printed chart sheet of the top six
+function sheetHTML(r) {
+  const s = r.sheet;
+  return `<div class="sheet${s?.noCover ? " sheet--solo" : ""}">${s && !s.noCover ? `<a class="sheet__cover" href="${s.href}" aria-label="${esc(s.title)} by ${esc(s.artist)}">${artwork(s.art, `${s.title} by ${s.artist}`)}<span class="sheet__cap t-meta">No. 1 · ${esc(s.title)}</span></a>` : ""}
+    <div class="grid">${r.cards.slice(0, 6).join("")}</div></div>`;
+}
+
+// Genres and decades on the home page are typographic indexes, like a table of contents
+const genreIndex = () => `<ol class="index index--genres">${GENRES.slice(0, 6).map((g, i) =>
+  `<li><a href="#/genre/${g.slug}"><span class="index__n t-meta">${String(i + 1).padStart(2, "0")}</span><span class="index__name">${esc(g.name)}</span><span class="index__cap t-meta" data-genre="${g.slug}"></span></a></li>`).join("")}</ol>`;
+function fillGenreIndex(root) {
+  GENRES.slice(0, 6).forEach((g) => genreChart(g).then((c) => {
+    const top = c.items[0], cap = $(`[data-genre="${g.slug}"]`, root);
+    if (top && cap) cap.textContent = `#1 ${top.title}, ${top.artist}`;
+  }).catch(() => {}));
+}
+const decadeIndex = () => `<ol class="index index--decades">${DECADES.map((d) =>
+  `<li><a href="#/decade/${d.start}" aria-label="${d.start}s"><span class="index__big" aria-hidden="true">${String(d.start).slice(2)}s</span><span class="index__cap t-meta">${d.start}–${d.start + 9}</span></a></li>`).join("")}</ol>`;
 const decadeGrid = () => `<div class="decades">${DECADES.map((d) =>
   `<a class="decade-card" href="#/decade/${d.start}"><span class="decade-card__num">${d.start}s</span><span class="decade-card__sub">${d.start}–${d.start + 9}</span></a>`).join("")}</div>`;
 
@@ -957,8 +1015,9 @@ async function renderHome() {
         ${searchForm({ mode: "menu", cls: "search--hero" })}
         <nav class="chips" aria-label="Browse genres">${GENRES.slice(0, 5).map((g) => `<a class="chip" href="#/genre/${g.slug}">${esc(g.name)}</a>`).join("")}<a class="chip" href="#/explore">More</a><a class="chip" href="#/surprise">Surprise me</a></nav>
       </div>
-      <div class="hero__mosaic" id="mosaic" aria-label="Top albums on this week's Billboard 200">${Array.from({ length: 6 }, () => `<div class="sk art"></div>`).join("")}</div>
+      <div class="hero__side"><div class="hero__mosaic" id="mosaic" aria-label="Top albums on this week's Billboard 200"></div><p class="hero__caption t-meta" id="mosaicCap"></p></div>
     </section>
+    <section class="section lead" id="leadFeature" hidden aria-labelledby="lead-h"></section>
     <section class="section" id="feedShelf" hidden>
       ${sectionHead("From people you follow", { sub: "Latest activity from public profiles you follow", link: "#/feed", linkLabel: "See all" })}
       <div class="feed"></div>
@@ -974,23 +1033,24 @@ async function renderHome() {
     ${homeSection("sec-divisive", "Divisive albums", "", { link: browseHref({ divisive: "1", sort: "divisive" }), linkLabel: "Browse all" })}
     <section class="section" id="sec-genres" aria-labelledby="sec-genres-h">
       ${sectionHead("Explore by genre", { sub: "Billboard's weekly album charts", link: "#/explore", linkLabel: "Explore all" }).replace("<h2", '<h2 id="sec-genres-h"')}
-      <div class="genres">${GENRES.slice(0, 6).map(genreCard).join("")}</div>
+      ${genreIndex()}
     </section>
     <section class="section" aria-labelledby="sec-decades-h">
       ${sectionHead("Explore by decade", { sub: "Editorial landmarks and community picks from every era", link: "#/explore", linkLabel: "Explore all" }).replace("<h2", '<h2 id="sec-decades-h"').replace("</h2>", '</h2><span class="badge">Editorial picks</span>')}
-      ${decadeGrid()}
+      ${decadeIndex()}
     </section>
     ${homeSection("sec-gems", "Beyond the Billboard 200", "", { link: "#/explore", linkLabel: "Explore" })}
     ${homeSection("sec-recent", "Recently reviewed", "", { link: "#/search", linkLabel: "Find albums" })}`;
   loadHeroMosaic();
+  loadLead();
   loadHomeFeed();
   loadRecs();
   runSection("sec-trending", loadTrending);
   runSection("sec-new", loadNewReleases, { defer: true });
   runSection("sec-top", loadHighest, { defer: true });
-  runSection("sec-radar", loadHiddenGems, { defer: true });
+  runSection("sec-radar", loadHiddenGems, { defer: true, big: true });
   runSection("sec-divisive", loadDivisive, { defer: true });
-  lazy($("#sec-genres"), () => fillGenreCards($("#sec-genres")));
+  lazy($("#sec-genres"), () => fillGenreIndex($("#sec-genres")));
   runSection("sec-gems", loadGems, { defer: true });
   runSection("sec-recent", loadRecent, { defer: true });
 }

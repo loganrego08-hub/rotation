@@ -1348,3 +1348,64 @@ main { min-height: 100vh; min-height: 100svh; }
 .site-footer { border-top: 2px solid var(--rule); font: var(--fw-regular) var(--fs-xs) / 1.6 var(--font-mono); letter-spacing: 0.01em; color: var(--text-3); }
 .site-footer a { text-decoration-color: var(--border-strong); }
 .site-footer a:hover { color: var(--text); }
+
+/* ==========================================================================
+   LINER NOTES, home: lead feature, crate hero, chart sheet, big rail, typographic indexes
+   ========================================================================== */
+/* Hero crate: this week's top three covers, overlapping like records in a bin. The paper-colored border keeps them from fusing. */
+.hero__side { display: grid; gap: var(--s-4); min-width: 0; align-content: center; }
+.hero__mosaic { display: block; position: relative; aspect-ratio: 1.12 / 1; }
+.hero__cover { position: absolute; width: 58%; border: 3px solid var(--bg); background: var(--bg); transition: transform 180ms ease-out; }
+.hero__cover--1 { left: 0; top: 14%; z-index: 1; }
+.hero__cover--2 { left: 21%; top: 0; z-index: 2; }
+.hero__cover--3 { right: 0; top: 26%; z-index: 3; }
+.hero__cover:hover { transform: translateY(-8px); z-index: 4; }
+.hero__caption { display: grid; gap: 2px; }
+@media (max-width: 760px) { .hero__side { display: none; } }
+
+/* Lead feature: the number one record this week */
+.lead__inner { display: grid; grid-template-columns: minmax(220px, 360px) minmax(0, 1fr); gap: var(--s-10); align-items: center; }
+.lead__sleeve { display: block; max-width: 360px; }
+.lead__text { display: grid; gap: var(--s-3); align-content: center; min-width: 0; }
+.lead__title { font: var(--fw-medium) clamp(2.25rem, 5vw, 4rem) / 1 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; letter-spacing: -0.025em; text-wrap: balance; overflow-wrap: anywhere; }
+.lead__title a:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 6px; }
+.lead__artist { font: var(--fw-medium) var(--fs-md) / 1.3 var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; }
+.lead__facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-3); font: var(--fw-regular) var(--fs-sm) / 1.5 var(--font-mono); color: var(--text-2); }
+.lead__yours { display: flex; align-items: baseline; gap: var(--s-3); }
+.lead__yours .score { font-size: 1.5rem; }
+.lead__actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-2); }
+@media (max-width: 760px) {
+  .lead__inner { grid-template-columns: minmax(0, 1fr); gap: var(--s-6); }
+  .lead__sleeve { width: min(calc(100% - 3.5rem), 300px); margin-inline: auto; }
+}
+
+/* "Highest rated": the number one cover beside a printed chart sheet of the top six */
+.sheet { display: grid; grid-template-columns: minmax(200px, 320px) minmax(0, 1fr); gap: var(--s-8); align-items: start; }
+.sheet--solo { grid-template-columns: minmax(0, 1fr); }
+.sheet--solo .grid { max-width: 860px; }
+.sheet__cover { display: grid; gap: var(--s-2); }
+.sheet__cap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet .grid:has(> .album-card__ranked) { border-top: 0; max-width: none; }
+.sheet .grid > .album-card__ranked:first-child { padding-top: 0; }
+@media (max-width: 760px) { .sheet { grid-template-columns: minmax(0, 1fr); gap: var(--s-5); } .sheet__cover { max-width: 320px; } }
+
+/* "Hidden gems": the same rail with larger covers, so it reads as a discovery shelf */
+.row--big { grid-auto-columns: clamp(200px, 22vw, 280px); gap: var(--s-8); }
+@media (max-width: 760px) { .row--big { grid-auto-columns: 62vw; gap: var(--s-4); } }
+
+/* Typographic indexes, like a table of contents (genres and decades on the home page) */
+.index { list-style: none; margin: 0; padding: 0; display: grid; }
+.index a { display: grid; color: var(--text); }
+.index a:hover .index__name, .index a:hover .index__big { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 6px; }
+.index--genres { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--s-10); }
+.index--genres li { border-bottom: 1px solid var(--border); }
+.index--genres a { grid-template-columns: 2.25rem minmax(0, 1fr); grid-template-areas: "n name" ". cap"; align-items: baseline; padding: var(--s-4) 0; row-gap: var(--s-1); }
+.index__n { grid-area: n; }
+.index__name { grid-area: name; font: var(--fw-medium) clamp(1.75rem, 3.2vw, 2.5rem) / 1.05 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.index__cap { grid-area: cap; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 1.5em; }
+.index--decades { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.index--decades li + li { border-left: 1px solid var(--border); }
+.index--decades a { padding: var(--s-2) var(--s-3); gap: var(--s-1); }
+.index__big { font: var(--fw-medium) clamp(2.25rem, 5vw, 4rem) / 1 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) { .index--decades { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--s-4); } .index--decades li:nth-child(4n + 1) { border-left: 0; } }
+@media (max-width: 760px) { .index--genres { grid-template-columns: minmax(0, 1fr); } }

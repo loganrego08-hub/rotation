@@ -18,6 +18,10 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 ## Routes and discovery
 - Hash routes: `#/` Discover, `#/explore`, `#/genre/:slug`, `#/decade/:start`, `#/lists/:tab` (charts, community, mine),
   `#/search/:term`, `#/me`, `#/album/:mbid`, `#/artist/:mbid`. Main nav is Discover, Explore, Lists, Search; phones get a bottom tab bar.
+- Home layout: hero (headline, search, genre tags) with a crate of the top three Billboard covers and a mono caption (#mosaic, real chart week; the community line shows only past `HERO_STAT_MIN_RATINGS`);
+  then the lead feature (loadLead: Billboard #1 with its real movement/weeks/peak, and your own score in vermilion if you've rated it); `Highest rated` is a chart sheet
+  (sheetHTML: big #1 cover beside six ranked rows, no cover in the Billboard fallback because the lead already shows #1); `Hidden gems` is a rail with larger covers (`row--big`);
+  genres and decades are typographic indexes (`genreIndex`, `decadeIndex`). Chart-sheet rows are scoped to `.grid > .album-card__ranked` so rails keep normal ranked cards.
 - Home sections are built with `homeSection` + `runSection` (lazy-loaded below the fold). Each loader returns real data only:
   community stats from Supabase, else a clearly labeled Billboard fallback. Never invent community activity.
 - `MIN_RATINGS` (3) gates "Highest rated"; "Under the radar" is 8+ with fewer than that.
