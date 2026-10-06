@@ -197,6 +197,18 @@ test("search: 'Stick Season' puts the real album first, noise behind it or gone"
   ok(rank("ss-insect") === -1 && rank("ss-men") === -1 && rank("ss-figures") === -1, "partial-word noise is dropped, not ranked");
   ok(rank("ss-band") > rank("ns-deluxe") || rank("ss-band") === -1, "tiny namesake behind the famous album's edition");
 });
+test("results page: 'Top results' holds only real records; obscure and cover-style ones go to 'More'", () => {
+  const { top, more } = L.splitTop(rk("midnights"));
+  eq(top.map((r) => r.id), ["mn-ts", "mn-armstrong"].filter((id) => top.some((r) => r.id === id)), "only established records");
+  ok(top[0].id === "mn-ts" && !top.some((r) => ["mn-peace", "mn-beautiful", "mn-violin", "mn-lofi"].includes(r.id)), "obscure exact titles and covers are not on top");
+  ok(more.some((r) => r.id === "mn-violin") && more.every((r) => !top.includes(r)), "they are still findable under More");
+  eq(L.splitTop([{ relevance: 10, obscure: true }, { relevance: 9, obscure: true }]).top.length, 2, "when nothing established matches, still show the best few");
+});
+test("fewer upstream requests: no retry for a clear hit, no sweep when artist and album were both typed", () => {
+  ok(!L.needsFuzzy(rk("kendrick gnx")) && L.needsFuzzy(rk("taylor swfit")) && L.needsFuzzy([]));
+  ok(!L.isWeakPool(FX, "mac miller swimming"), "artist + exact album typed: unambiguous");
+  ok(L.isWeakPool(FX.filter((g) => g.id === "ds-obscure"), "dark side"), "an obscure exact title alone is still ambiguous");
+});
 test("search: duplicates collapse to the original release", () => {
   const r = rk("stick season");
   eq(r.filter((x) => x.title.startsWith("Stick Season") && x.artist === "Noah Kahan" && x.type === "Album" && !/We'll/.test(x.title)).length, 1, "deluxe edition merged into the album");

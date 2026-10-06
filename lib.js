@@ -205,6 +205,8 @@
     artistCardShare: 0.7, // artist card is shown when its score is at least this share of the best album score
   };
   const NOISE_RE = /karaoke|tribute|piano (version|rendition|cover)s?|instrumental (version|cover)s?|lullaby|made famous|originally performed|in the style of|as made|cover versions?|workout|8-bit|music box|\bai (generated|music|cover)/i;
+  // Cover/background-music records. Weaker evidence than NOISE_RE (a real album can be called "Covers"), so they only lose points and never reach "Top results".
+  const NOISE2_RE = /\b(covers?|instrumentals?|lo-?fi|study|string quartet|performs|renditions?|mash-?ups?|mashed|a cappella|re-?imagined|sleep|relaxing|meditation)\b/i;
   const STOP = new Set(["the", "a", "an", "of", "and"]);
 
   // Lowercase, strip accents and punctuation, "&" -> "and", drop a leading The/A/An ("The Weeknd" -> "weeknd", "Beyoncé" -> "beyonce")
@@ -293,10 +295,14 @@
     s += W.editions * Math.log2(1 + (c.releases || 0)) + W.tags * Math.log2(1 + (c.tags || 0));
     s += opts.typeChosen ? W.typeChosen : (W.type[kind] ?? 0);
     const noisy = NOISE_RE.test(`${c.title} ${c.artist}`) && !NOISE_RE.test(query);
+    const soft = !noisy && NOISE2_RE.test(`${c.title} ${c.artist}`) && !NOISE2_RE.test(query);
     if (noisy) s -= W.noise;
-    if (!known && !bb && (c.releases || 0) <= 1 && !(c.tags || 0)) s -= W.obscure;
+    if (soft) s -= W.noise * 0.6;
+    // Nothing says this record is real: not rated here, not charting, almost no editions, no tag votes
+    const obscure = !known && !bb && (c.releases || 0) <= 2 && (c.tags || 0) <= 1;
+    if (obscure) s -= W.obscure;
     if (!c.date) s -= W.undated;
-    return { relevance: Math.round(s * 10) / 10, text: m.score, textKind: m.kind, kind, noisy, known, billboard: bb || null };
+    return { relevance: Math.round(s * 10) / 10, text: m.score, textKind: m.kind, kind, noisy: noisy || soft, obscure, known, billboard: bb || null };
   }
   // Same artist + same base title + same kind (album, single, EP...) is one release: keep the original (known to Rotation first,
   // then earliest release, then best score). A single and the album that share a name stay separate, ranked by type.
@@ -345,9 +351,12 @@
   // Results page split: "Top results" (clearly relevant) then the rest
   function splitTop(ranked, weights = SEARCH_WEIGHTS) {
     if (!ranked.length) return { top: [], more: [] };
+    // "Top" needs evidence the record is real: obscure and cover-style records go to "More results" however well their title matches
     const floor = ranked[0].relevance * weights.topShare;
-    const top = ranked.filter((r, i) => i < weights.topMax && r.relevance >= floor);
-    return { top, more: ranked.slice(top.length) };
+    let top = ranked.filter((r) => r.relevance >= floor && !r.obscure && !r.noisy).slice(0, weights.topMax);
+    if (!top.length) top = ranked.slice(0, 3);   // nothing established matched (a rare band, a very new album): still show the best few
+    const inTop = new Set(top);
+    return { top, more: ranked.filter((r) => !inTop.has(r)) };
   }
   // "Did you mean": the best result's artist or title when the query only matched it through typo tolerance
   function didYouMean(query, ranked) {
@@ -379,7 +388,14 @@
   // MusicBrainz orders by text only, so for a short ambiguous query ("dark side") the famous album can sit past the first 50 hits.
   // When nothing in the first page looks established, the caller runs a second pass over tagged albums (2 pages of 100).
   // "Established" = 12+ editions (tag votes alone are easy to inflate on obscure entries) AND the title/artist really matches the words typed.
-  const isWeakPool = (groups, query = "") => !groups.some((g) => (g.releases || 0) >= 12 && matchText(query, g).score >= 0.7);
+  // Typing both an artist and an album that matches exactly ("mac miller swimming") is unambiguous, so no sweep is needed either.
+  function isWeakPool(groups, query = "") {
+    if (groups.some((g) => (g.releases || 0) >= 12 && matchText(query, g).score >= 0.7)) return false;
+    return !groups.some((g) => { const m = matchText(query, g); return m.kind === "artist+title" && m.score >= 0.95; });
+  }
+  // A first page whose best match isn't a near-exact one usually means a typo: worth one typo-tolerant retry
+  // (an exact artist name scores 0.82 on its own, so the bar sits just below that; typo matches never exceed 0.6)
+  const needsFuzzy = (ranked) => !ranked.length || ranked[0].text < 0.78;
   function filterClauses(f = {}) {
     const parts = [], t = f.type || "album";
     if (["album", "ep", "single"].includes(t)) parts.push(`primarytype:${t}`);
@@ -390,7 +406,7 @@
     return parts;
   }
 
-  root.RotationLib = { SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  root.RotationLib = { SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
 // api/search.js shares the same ranking code as the browser
 if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;

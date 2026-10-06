@@ -47,6 +47,13 @@
     ["ts-folklore", "folklore", "Taylor Swift", "a-ts", "2020-07-24", "Album", [], 25, 20],
     ["ts-karaoke", "Taylor Swift Karaoke: Taylor Swift", "Taylor Swift", "a-ts", "2009-01-27", "Album", ["Remix"], 10, 6],
     ["ts-mega", "The Taylor Swift Megamix", "Taylor Swift", "a-ts", "2015", "Album", ["DJ-mix"], 1, 1],
+    // "midnights": one real album, then exact-title records nobody has heard of and cover records
+    ["mn-ts", "Midnights", "Taylor Swift", "a-ts", "2022-10-21", "Album", [], 40, 30],
+    ["mn-peace", "Midnights", "Peaceful Noise", "a-pn", "2020-05-05", "Album", [], 1, 0],
+    ["mn-beautiful", "beautiful midnights", "undersaken", "a-un", "2019-02-02", "Album", [], 1, 0],
+    ["mn-violin", "Midnights (The Violin Covers)", "Ana Done", "a-ad", "2023-01-01", "Album", [], 1, 0],
+    ["mn-lofi", "midnights (3am lofi hip hop study edition)", "lonelyboy", "a-lb", "2023-02-02", "Album", [], 2, 1],
+    ["mn-armstrong", "Midnights at V-Disc", "Louis Armstrong", "a-la", "1996", "Album", [], 3, 3],
     // Mac Miller
     ["mm-swim", "Swimming", "Mac Miller", "a-mm", "2018-08-03", "Album", [], 20, 15],
     ["mm-circles", "Circles", "Mac Miller", "a-mm", "2020-01-17", "Album", [], 16, 12],

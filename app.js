@@ -473,7 +473,7 @@ async function directCandidates(term, f, { limit, offset, prefix }) {
   let groups = plan.strict ? await get(plan.strict, offset) : [];
   if (offset === 0 && !prefix && term && plan.fuzzy && plan.fuzzy !== plan.strict) {
     const ranked = RL.rankAlbums(term, groups);
-    if (ranked.length < 3 || ranked[0].text < 0.75) { const more = await get(plan.fuzzy, 0).catch(() => []), seen = new Set(groups.map((g) => g.id)); groups = groups.concat(more.filter((g) => !seen.has(g.id))); }
+    if (RL.needsFuzzy(ranked)) { const more = await get(plan.fuzzy, 0).catch(() => []), seen = new Set(groups.map((g) => g.id)); groups = groups.concat(more.filter((g) => !seen.has(g.id))); }
   }
   if (offset === 0 && !prefix && term && plan.tagged && RL.isWeakPool(groups, term)) {   // same sweep as api/search.js
     const seen = new Set(groups.map((g) => g.id));

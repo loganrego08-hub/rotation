@@ -55,7 +55,7 @@ module.exports = async (req, res) => {
     // Weak or empty results usually mean a typo: try again with typo-tolerant terms and merge
     if (offset === 0 && !prefix && q && plan.fuzzy && plan.fuzzy !== plan.strict) {
       const ranked = RL.rankAlbums(q, groups, {}, { typeChosen: !!f.type && f.type !== "any" });
-      if (ranked.length < 3 || ranked[0].text < 0.75) {
+      if (RL.needsFuzzy(ranked)) {
         const more = await fetchGroups(plan.fuzzy, limit, 0).catch(() => []);
         const seen = new Set(groups.map((g) => g.id));
         groups = groups.concat(more.filter((g) => !seen.has(g.id)));
