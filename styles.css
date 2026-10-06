@@ -13,7 +13,7 @@
   --bg: #F1EBDD;                 /* the page: paper */
   --surface-1: #E9E1CF;          /* wells and panels */
   --surface-2: #DFD6C1;          /* inputs, menus, raised wells */
-  --surface-3: #D3C9B2;          /* hover on a well */
+  --surface-3: #D9D0BA;          /* hover on a well (spec has no third surface; kept light enough for text-3 to pass on it) */
   --border: #CFC5AE;             /* 1px hairline */
   --border-strong: #B7AC93;      /* hairline that has to survive (control edges, dashed notes) */
   --rule: #1B1916;               /* strong rules: 2px above major sections, active underline, input base line */
@@ -21,14 +21,14 @@
   /* Text */
   --text: #1B1916;               /* ink */
   --text-2: #4A463D;             /* secondary */
-  --text-3: #6F6959;             /* metadata and captions */
+  --text-3: #5E5847;             /* metadata and captions (spec #6F6959 was 3.8:1 on the wells; darkened to pass 4.5:1) */
 
   /* Accent: vermilion. Large text and UI only; small accent text uses --accent-strong. */
   --accent: #D6401F;
-  --accent-strong: #B83416;      /* small text and links */
-  --accent-ink: #FFF8EE;         /* text on an accent fill */
-  --accent-hover: #BF3519;
-  --accent-pressed: #A22D13;
+  --accent-strong: #A22C12;      /* small text and links (spec #B83416 was 4.1:1 on the wells) */
+  --accent-ink: #FFFFFF;         /* text on an accent fill (spec #FFF8EE was 4.32:1 on vermilion; white is 4.55:1) */
+  --accent-hover: #BC3418;
+  --accent-pressed: #A52D13;
 
   /* Functional colors: system states only, never ratings. Always with an icon or a label. */
   --success: #2F6B3A;
@@ -126,7 +126,7 @@
   color-scheme: dark;
   --bg: #14120F; --surface-1: #1C1915; --surface-2: #24201A; --surface-3: #2E2922;
   --border: #3A342B; --border-strong: #4D463A; --rule: #EDE6D6;
-  --text: #EDE6D6; --text-2: #B8B0A0; --text-3: #8F8878;
+  --text: #EDE6D6; --text-2: #B8B0A0; --text-3: #9A9383;
   --accent: #FF5A36; --accent-strong: #FF7A5C; --accent-ink: #14120F; --accent-hover: #FF7552; --accent-pressed: #E94A27;
   --success: #6DBF82; --error: #FF8A78; --info: #7FB0E0;
   --tint-blend: screen; --tint-strength: 9%;

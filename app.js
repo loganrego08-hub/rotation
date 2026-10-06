@@ -598,7 +598,7 @@ async function suggest(input, term) {
     if (!current()) return;
     painted = true;
     results.innerHTML = res.ranked.length ? suggestHTML(term, res, f)
-      : `<p class="menu__note" role="status">No matches for “${esc(term)}”. Try fewer words or check the spelling.</p><div class="menu__group"><a class="menu__item" role="option" id="sopt-1" aria-selected="false" href="${searchHref(term, f)}">${icon("search")}<span class="menu__text"><strong>Search all types</strong></span></a></div>`;
+      : `<p class="menu__note" role="status">Nothing for “${esc(term)}”. Check the spelling, or try the artist’s name.</p><div class="menu__group"><a class="menu__item" role="option" id="sopt-1" aria-selected="false" href="${searchHref(term, f)}">${icon("search")}<span class="menu__text"><strong>Search all types</strong></span></a></div>`;
   } catch (e) {
     if (e.name === "AbortError" || !current()) return;
     results.innerHTML = `<p class="menu__note" role="status">Search is unavailable right now. Try again in a moment.</p>`;
@@ -716,8 +716,8 @@ async function pageSearch(term, f = {}, replace = false) {
     const keyOf = (r) => RL.normText(r.artist) + "|" + RL.baseTitle(r.title) + "|" + r.kind, seen = new Set(res.ranked.map(keyOf));
     let offset = PAGE, canMore = res.rawCount >= PAGE && offset < MB_WINDOW;
     if (!res.ranked.length && !canMore) {
-      el.innerHTML = emptyState({ iconName: "search", title: term ? `No results for “${term}”` : "No albums match these filters",
-        body: hasFilters(f) ? "Try loosening the year range, type or genre, or clear the filters." : "Try fewer words, or check the spelling. You can also search the artist and album together.",
+      el.innerHTML = emptyState({ iconName: "search", title: term ? `Nothing for “${term}”` : "No albums match these filters",
+        body: hasFilters(f) ? "Try loosening the year range, type or genre, or clear the filters." : "Check the spelling, or try the artist’s name.",
         actions: hasFilters(f) ? button("Clear filters", { id: "emptyClear" }) : (f.type && f.type !== "any" ? button("Search all types", { href: searchHref(term, { ...f, type: "any" }) }) : ""), compact: true });
       $("#emptyClear")?.addEventListener("click", () => { $("#clearFilters")?.click(); });
       return;
@@ -952,8 +952,8 @@ async function renderHome() {
   view().innerHTML = `
     <section class="hero">
       <div class="hero__copy">
-        <h1 class="t-hero">Find your next rotation.</h1>
-        <p class="t-lead">Discover something new. Rate what moves you.</p>
+        <h1 class="t-hero">What’s in your rotation?</h1>
+        <p class="t-lead">Score albums out of 10. Star the tracks that hit. See where everyone else lands.</p>
         ${searchForm({ mode: "menu", cls: "search--hero" })}
         <nav class="chips" aria-label="Browse genres">${GENRES.slice(0, 5).map((g) => `<a class="chip" href="#/genre/${g.slug}">${esc(g.name)}</a>`).join("")}<a class="chip" href="#/explore">More</a><a class="chip" href="#/surprise">Surprise me</a></nav>
       </div>
@@ -1187,7 +1187,7 @@ async function loadRecs() {
     const need = REC_MIN_RATINGS - ratings.length;
     $("#recWhy").textContent = `Popular right now, not personalized yet. Rate ${plural(need, "more album")} and these start to reflect your taste.`;
     try { const c = await billboard("billboard-200"); if (el.isConnected) el.innerHTML = c.items.slice(0, 12).map((it) => albumCard({ ...it, move: null, why: `#${it.rank} on the Billboard 200` })).join(""); }
-    catch { if (el.isConnected) el.outerHTML = `<div id="recs">${emptyState({ iconName: "star", compact: true, title: "Rate a few albums to unlock picks", body: "We match this week's charts and the community to what you score highly.", actions: button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) })}</div>`; }
+    catch { if (el.isConnected) el.outerHTML = `<div id="recs">${emptyState({ iconName: "star", compact: true, title: "Rate a few albums to get picks", body: "We match this week's charts and the community to what you score highly.", actions: button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) })}</div>`; }
     return;
   }
   $("#recWhy").textContent = "Matching genres, artists and similar listeners to what you rate highly…";
@@ -1297,7 +1297,7 @@ async function renderProfile() {
   const bodyHTML = () => {
     const { v, sortKey, list, total, q } = current();
     if (!list.length) {
-      if (q && total) return emptyState({ iconName: "search", compact: true, title: `No matches for “${profileQuery.trim()}”`, body: "Try a different title or artist, or clear the filter." });
+      if (q && total) return emptyState({ iconName: "search", compact: true, title: `Nothing for “${profileQuery.trim()}”`, body: "Try a different title or artist, or clear the filter." });
       if (v.empty) return emptyState({ iconName: profileTab === "favorite" ? "heart" : profileTab === "want" ? "bookmark" : "note", compact: true, title: v.empty[0], body: v.empty[1],
         actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) });
       return emptyState({ iconName: "disc", title: "Your library is empty", body: "Score your first album and your rankings, notes and standout tracks will collect here.",
@@ -1441,7 +1441,7 @@ const apiError = (e) => /row-level security|jwt|not authenticated/i.test(e?.mess
 
 // Plain-language read of the distribution, computed only from the numbers shown. Needs enough ratings to mean anything.
 function confidenceNote(n) {
-  if (n < MIN_RATINGS) return `Based on ${plural(n, "rating")}. Too few to rank or compare with other albums.`;
+  if (n < MIN_RATINGS) return `Only ${plural(n, "rating")} so far. Not enough to rank.`;
   if (n < 10) return "Early read. The average can move a lot as more people rate.";
   return "";
 }
@@ -1726,7 +1726,7 @@ async function renderAlbum(id) {
     $("#revList").innerHTML = sorted.length
       ? `<div class="reviews">${sorted.slice(0, R.shown).map((r) => reviewCard({ name: r.author, date: r.updated_at, score: r.score, body: r.body, standouts: r.standout_tracks || [],
           href: r.author_username ? profileHref(r.author_username) : null, footer: reviewFooter(r) })).join("")}</div>`
-      : emptyState({ iconName: "note", title: "No written reviews yet", body: "Reviews appear here when listeners choose to share them. Notes stay private unless the writer shares them.", plain: true });
+      : emptyState({ iconName: "note", title: "No written reviews yet. Say something.", body: "Reviews appear here when listeners choose to share them. Notes stay private unless the writer shares them.", plain: true });
     $("#revMore").innerHTML = sorted.length > R.shown ? `<button type="button" class="btn" id="revShowMore"><span>Show ${Math.min(10, sorted.length - R.shown)} more</span></button>` : "";
   };
   paintReviews();
@@ -2961,7 +2961,7 @@ async function renderRecap(username, yearArg) {
           <div class="months__col" title="${MONTHS[m.month - 1]}: ${plural(m.n, "album")}${m.avg != null ? `, averaging ${m.avg}` : ""}"><span class="dist__n">${m.n || ""}</span><span class="dist__track"><span class="dist__bar" style="height:${m.n ? Math.max(6, Math.round((m.n / maxN) * 100)) : 2}%"></span></span><span class="dist__label">${MONTHS[m.month - 1][0]}</span></div>`).join("")}</div>
         <p class="t-meta">${r.busiestMonth ? `Busiest month: ${MONTHS[r.busiestMonth - 1]}. ` : ""}${r.trend ? `Your scores ${r.trend.direction === "steady" ? "stayed steady" : r.trend.direction === "up" ? "rose" : "fell"} through the year: ${r.trend.first} average for the first half, ${r.trend.second} for the second.` : "A trend needs 10 or more ratings in the year."}</p></section>
       ${r.topRated.length ? `<section class="section">${sectionHead("Highest rated", { sub: "Your best scores this year" })}<div class="tiles">${r.topRated.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self })).join("")}</div></section>` : ""}
-      ${r.discoveries.length ? `<section class="section">${sectionHead("Highest-rated discoveries", { sub: "Albums you scored 8+ that 10 or fewer people on Rotation have rated" })}<div class="tiles">${r.discoveries.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(counts.get(x.album_id) || 0, "rating") + " on Rotation" })).join("")}</div></section>` : ""}
+      ${r.discoveries.length ? `<section class="section">${sectionHead("Highest rated, least heard", { sub: "Albums you scored 8+ that 10 or fewer people on Rotation have rated" })}<div class="tiles">${r.discoveries.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(counts.get(x.album_id) || 0, "rating") + " on Rotation" })).join("")}</div></section>` : ""}
       ${r.mostRated.length ? `<section class="section">${sectionHead("Most-rated albums you rated", { sub: "The albums you rated that the most people on Rotation have rated" })}<div class="tiles">${r.mostRated.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(x.community_count, "rating") })).join("")}</div></section>` : ""}
       ${r.genres.length || r.artists.length ? `<section class="section">${sectionHead("Favorite genres and artists", { sub: "Genres and artists with 2+ albums rated this year" })}
         ${r.genres.length ? `<div class="chips">${r.genres.map((g) => `<span class="chip chip--static">${esc(g.name)} · ${plural(g.n, "album")}, avg ${g.avg}</span>`).join("")}</div>` : ""}
@@ -3173,7 +3173,7 @@ async function renderStats(sampleMode) {
   if (demo) { recs.innerHTML = SAMPLE_RECS.map((r) => albumCard({ ...r, art: null })).join(""); return; }
   if (ratings.length < REC_MIN_RATINGS) {
     why.textContent = "";
-    recs.outerHTML = `<div id="statsRecs">${emptyState({ iconName: "star", compact: true, title: "Rate a few albums to unlock picks", body: `Picks need ${plural(REC_MIN_RATINGS - ratings.length, "more rating")}. Until then we don't pretend to know your taste.` })}</div>`;
+    recs.outerHTML = `<div id="statsRecs">${emptyState({ iconName: "star", compact: true, title: "Rate a few albums to get picks", body: `Picks need ${plural(REC_MIN_RATINGS - ratings.length, "more rating")}. Until then we don't pretend to know your taste.` })}</div>`;
     return;
   }
   why.textContent = "Matching genres, artists and similar listeners to what you rate highly…";
@@ -3269,7 +3269,7 @@ window.addEventListener("scroll", () => {
 }, { passive: true });
 
 // Bottom navigation for phones and small tablets (CSS shows it under 860px)
-$("#tabbar").innerHTML = [["discover", "#/", "Discover", "compass"], ["explore", "#/explore", "Explore", "grid"], ["lists", "#/lists", "Lists", "list"],
+$("#tabbar").innerHTML = [["discover", "#/", "Home", "compass"], ["explore", "#/explore", "Explore", "grid"], ["lists", "#/lists", "Lists", "list"],
   ["search", "#/search", "Search", "search"], ["me", "#/me", "Profile", "user"]]
   .map(([key, href, label, ic]) => `<a href="${href}" data-nav="${key}">${icon(ic)}<span>${label}</span></a>`).join("");
 
