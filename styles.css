@@ -1173,14 +1173,14 @@ main { min-height: 100vh; min-height: 100svh; }
 /* Signature hover, desktop pointers only: the cover slides left 9px and a black vinyl disc peeks out from behind it on the right.
    Pure CSS, 180ms ease-out. Off for touch and under prefers-reduced-motion. */
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
-  .album-card:not(.album-card__ranked)::before {
+  .album-card:not(.grid > .album-card__ranked)::before {
     content: ""; position: absolute; z-index: 0; top: 0; left: 0; width: 100%; aspect-ratio: 1 / 1; border-radius: 50%;
     background: var(--disc); border: 1px solid var(--disc-groove); outline: 1px solid var(--disc-groove); outline-offset: -9px; transform: translateX(0); opacity: 0;
     transition: transform 180ms ease-out, opacity 0s linear 180ms; pointer-events: none;
   }
-  .album-card:not(.album-card__ranked) > .art { position: relative; z-index: 1; }
-  .album-card:not(.album-card__ranked):hover > .art, .album-card:not(.album-card__ranked):focus-visible > .art { transform: translateX(-9px); }
-  .album-card:not(.album-card__ranked):hover::before, .album-card:not(.album-card__ranked):focus-visible::before { opacity: 1; transform: translateX(4px); transition-delay: 0s; }
+  .album-card:not(.grid > .album-card__ranked) > .art { position: relative; z-index: 1; }
+  .album-card:not(.grid > .album-card__ranked):hover > .art, .album-card:not(.grid > .album-card__ranked):focus-visible > .art { transform: translateX(-9px); }
+  .album-card:not(.grid > .album-card__ranked):hover::before, .album-card:not(.grid > .album-card__ranked):focus-visible::before { opacity: 1; transform: translateX(4px); transition-delay: 0s; }
 }
 @media (hover: none), (prefers-reduced-motion: reduce) { .album-card .art, .tile__art .art, .hero__cover .art { transition: none; } }
 /* Card footer: movement or reason on the left (wraps to two lines), score on the right, never overlapping the next card */
@@ -1194,18 +1194,18 @@ main { min-height: 100vh; min-height: 100svh; }
    rank numeral | 56px square cover | title and artist (and movement) | score, with a hairline between rows and no zebra striping
    ========================================================================== */
 .grid:has(> .album-card__ranked) { grid-template-columns: minmax(0, 1fr); gap: 0; border-top: 2px solid var(--rule); max-width: 860px; }
-.album-card__ranked {
+.grid > .album-card__ranked {
   grid-template-columns: 3.5rem 56px minmax(0, 1fr) auto; grid-template-areas: "rank art title score" "rank art artist score" "rank art meta score";
   column-gap: var(--s-4); row-gap: 2px; align-items: center; padding: var(--s-3) 0; border-bottom: 1px solid var(--border);
 }
-.album-card__ranked .album-card__body, .album-card__ranked .album-card__top, .album-card__ranked .album-card__foot { display: contents; }
-.album-card__ranked > .art { grid-area: art; grid-row: 1 / span 3; width: 56px; align-self: center; }
-.album-card__ranked .album-card__rank { grid-area: rank; grid-row: 1 / span 3; width: auto; text-align: right; font: var(--fw-medium) 2.25rem / 1 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; font-variant-numeric: tabular-nums; }
-.album-card__ranked .album-card__title { grid-area: title; -webkit-line-clamp: 1; font-size: var(--fs-md); }
-.album-card__ranked .album-card__artist { grid-area: artist; padding-left: 0; }
-.album-card__ranked .album-card__foot > .meta { grid-area: meta; padding-left: 0; }
-.album-card__ranked .album-card__foot > .score { grid-area: score; grid-row: 1 / span 3; align-self: center; font-size: var(--fs-md); }
-.album-card__ranked:hover .album-card__title { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.grid > .album-card__ranked .album-card__body, .grid > .album-card__ranked .album-card__top, .grid > .album-card__ranked .album-card__foot { display: contents; }
+.grid > .album-card__ranked > .art { grid-area: art; grid-row: 1 / span 3; width: 56px; align-self: center; }
+.grid > .album-card__ranked .album-card__rank { grid-area: rank; grid-row: 1 / span 3; width: auto; text-align: right; font: var(--fw-medium) 2.25rem / 1 var(--font-display); font-variation-settings: "SOFT" 0, "WONK" 1; font-variant-numeric: tabular-nums; }
+.grid > .album-card__ranked .album-card__title { grid-area: title; -webkit-line-clamp: 1; font-size: var(--fs-md); }
+.grid > .album-card__ranked .album-card__artist { grid-area: artist; padding-left: 0; }
+.grid > .album-card__ranked .album-card__foot > .meta { grid-area: meta; padding-left: 0; }
+.grid > .album-card__ranked .album-card__foot > .score { grid-area: score; grid-row: 1 / span 3; align-self: center; font-size: var(--fs-md); }
+.grid > .album-card__ranked:hover .album-card__title { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
 /* Ranked lists elsewhere (top rated, a person's list) use the same sheet */
 .list { border-top: 2px solid var(--rule); max-width: 860px; }
 .list-card { grid-template-columns: 3.5rem 56px minmax(0, 1fr) auto; gap: var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--border); border-radius: 0; }
@@ -1219,9 +1219,9 @@ main { min-height: 100vh; min-height: 100svh; }
 .entry__rank { font: var(--fw-medium) 2rem / 1 var(--font-display); color: var(--text); }
 .feed, .notes { border-top: 2px solid var(--rule); }
 @media (max-width: 760px) {
-  .album-card__ranked, .list-card { grid-template-columns: 2.5rem 48px minmax(0, 1fr) auto; column-gap: var(--s-3); }
-  .album-card__ranked > .art, .list-card .thumb { width: 48px; }
-  .album-card__ranked .album-card__rank, .list-card__rank { font-size: 1.75rem; }
+  .grid > .album-card__ranked, .list-card { grid-template-columns: 2.5rem 48px minmax(0, 1fr) auto; column-gap: var(--s-3); }
+  .grid > .album-card__ranked > .art, .list-card .thumb { width: 48px; }
+  .grid > .album-card__ranked .album-card__rank, .list-card__rank { font-size: 1.75rem; }
 }
 
 /* ==========================================================================
