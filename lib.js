@@ -72,6 +72,16 @@
   }
   const yearsWithRatings = (rows) => [...new Set(rows.map((r) => String(r.first_rated_at || "").slice(0, 4)).filter((y) => /^\d{4}$/.test(y)))].sort().reverse();
 
+  /* ---------- Score colors ----------
+     The ONE place a score becomes a color. Whole scores and averages both work (7.4 rounds to 7). The ramp runs cool to hot:
+     1-4 low, 5-6 mid, 7-8 high, 9-10 top, matching --score-low/mid/high/top in styles.css. The number is always printed too. */
+  function scoreTone(n) {
+    const v = Math.round(Number(n));
+    return !(v >= 1) ? "" : v <= 4 ? "low" : v <= 6 ? "mid" : v <= 8 ? "high" : "top";
+  }
+  const scoreVar = (n) => (scoreTone(n) ? `var(--score-${scoreTone(n)})` : "var(--text-muted)");   // for canvas / inline use
+  const toneAttr = (n) => (scoreTone(n) ? ` data-tone="${scoreTone(n)}"` : "");                    // for HTML strings
+
   /* ---------- Stats dashboard ---------- */
   // Dates are plain YYYY-MM-DD strings, compared as text, so time zones never shift a day.
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -406,7 +416,7 @@
     return parts;
   }
 
-  root.RotationLib = { SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  root.RotationLib = { scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
 // api/search.js shares the same ranking code as the browser
 if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;

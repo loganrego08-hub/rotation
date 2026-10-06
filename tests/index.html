@@ -167,6 +167,14 @@ test("stats: decades, top genres, top artists this year", () => {
   eq(s.artists.map((a) => a.name), ["X", "Z"], "only 2026 ratings, most albums first"); eq(s.artists[0].avg, 8);
 });
 
+/* ---- score colors ---- */
+test("scoreTone: 1-4 low, 5-6 mid, 7-8 high, 9-10 top; averages round; nothing for no score", () => {
+  eq([1, 4, 5, 6, 7, 8, 9, 10].map(L.scoreTone), ["low", "low", "mid", "mid", "high", "high", "top", "top"]);
+  eq([7.4, 4.4, 4.6, 8.5, 9.4].map(L.scoreTone), ["high", "low", "mid", "top", "top"], "decimals round to the nearest whole score");
+  eq([0, null, undefined, "", "abc", NaN].map(L.scoreTone), ["", "", "", "", "", ""]);
+  eq(L.toneAttr(9), ' data-tone="top"'); eq(L.toneAttr(null), ""); eq(L.scoreVar(2), "var(--score-low)"); eq(L.scoreVar(null), "var(--text-muted)");
+});
+
 /* ---- search ranking ---- */
 const FX = window.SEARCH_FIXTURE;
 const rk = (q, o) => L.rankAlbums(q, FX, {}, o || {});

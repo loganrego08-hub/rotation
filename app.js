@@ -195,12 +195,14 @@ function artwork(src, alt, cls = "", { priority = false } = {}) {
   return `<div class="art ${cls}"><img src="${esc(src)}"${srcset} alt="${esc(alt)}" ${priority ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"'} decoding="async"
     onerror="this.parentNode.insertAdjacentHTML('beforeend', this.dataset.fb); this.remove()" data-fb="${esc(fallback)}"></div>`;
 }
+// Re-tints an element when its score changes (the same ramp as RL.toneAttr)
+const setTone = (el, n) => { if (!el) return; const t = RL.scoreTone(n); if (t) el.dataset.tone = t; else delete el.dataset.tone; };
 const smallArt = (u) => (u || "").replace("/front-500", "/front-250");
 
 function scoreChip(value, { mine = false, count, label } = {}) {
   if (value == null) return "";
   const title = label || (mine ? "Your score" : count != null ? `Average of ${plural(count, "rating")}` : "Average score");
-  return `<span class="score${mine ? " score--mine" : ""}" title="${title}"><span class="sr">${title}: </span>${value}<small>/10</small></span>`;
+  return `<span class="score${mine ? " score--mine" : ""}"${RL.toneAttr(value)} title="${title}"><span class="sr">${title}: </span>${value}<small>/10</small></span>`;
 }
 
 function metaLine(text, kind) {
@@ -1377,7 +1379,7 @@ async function resolveFind(artist, title) {
 /* ---------- Album page ---------- */
 function recordSvg(score) {
   const rings = Array.from({ length: 10 }, (_, i) => `<circle class="groove ${score && 10 - i <= score ? "on" : ""}" cx="68" cy="68" r="${64 - i * 3.7}"/>`).join("");
-  return `<svg class="record" viewBox="0 0 136 136" role="img" aria-label="${score ? `Your score: ${score} out of 10` : "Not rated yet"}">
+  return `<svg class="record"${RL.toneAttr(score)} viewBox="0 0 136 136" role="img" aria-label="${score ? `Your score: ${score} out of 10` : "Not rated yet"}">
     ${rings}<circle class="label" cx="68" cy="68" r="24"/><text class="num" x="68" y="69" text-anchor="middle" dominant-baseline="central">${score || "–"}</text></svg>`;
 }
 
@@ -1386,7 +1388,7 @@ function distribution(counts, mineScore) {
   const max = Math.max(...counts, 1);
   const label = counts.map((n, i) => `${i + 1}: ${n}`).join(", ");
   return `<div class="dist" role="img" aria-label="Rating distribution, score then count. ${label}">${counts.map((n, i) => `
-    <div class="dist__col${mineScore === i + 1 ? " is-mine" : ""}" title="${plural(n, "rating")} of ${i + 1}">
+    <div class="dist__col${mineScore === i + 1 ? " is-mine" : ""}"${RL.toneAttr(i + 1)} title="${plural(n, "rating")} of ${i + 1}">
       <span class="dist__n">${n || ""}</span>
       <span class="dist__track"><span class="dist__bar" style="height:${n ? Math.max(6, Math.round((n / max) * 100)) : 2}%"></span></span>
       <span class="dist__label">${i + 1}</span>
@@ -1466,7 +1468,7 @@ async function renderAlbum(id) {
     if (!S.stats) return `<p class="text-2" style="font-size:var(--fs-sm)">No ratings yet. Be the first to score it.</p>`;
     const notes = [confidenceNote(n), S.counts ? spreadNote(S.counts) : ""].filter(Boolean);
     return `<div class="community">
-        <div class="rating-stat"><span class="score score--lg">${S.stats.avg_score}<small> /10</small></span><span class="t-meta">${plural(n, "rating")}</span></div>
+        <div class="rating-stat"><span class="score score--lg"${RL.toneAttr(S.stats.avg_score)}>${S.stats.avg_score}<small> /10</small></span><span class="t-meta">${plural(n, "rating")}</span></div>
         ${S.counts ? distribution(S.counts, S.score) : ""}</div>
       ${notes.length ? `<p class="t-meta">${notes.map(esc).join(" ")}</p>` : ""}`;
   };
@@ -1483,12 +1485,12 @@ async function renderAlbum(id) {
       <p class="field__hint" role="status">${S.mine ? "Rated albums count as listened." : st.favorite ? "Favorites count as listened." : "Rating an album marks it as listened."}</p>`;
   };
   const pickerHTML = () => `<div class="picker" id="picker" role="group" aria-labelledby="pickLabel">${Array.from({ length: 10 }, (_, i) =>
-    `<button type="button" data-s="${i + 1}" aria-pressed="${S.score === i + 1}" aria-label="Rate ${i + 1} out of 10">${i + 1}</button>`).join("")}</div>`;
+    `<button type="button" data-s="${i + 1}"${RL.toneAttr(i + 1)} aria-pressed="${S.score === i + 1}" aria-label="Rate ${i + 1} out of 10">${i + 1}</button>`).join("")}</div>`;
 
   const genreLinks = (album.genres || []).map((n) => { const g = matchGenre(n); return g ? `<a class="textlink" href="#/genre/${g.slug}">${esc(n)}</a>` : `<span>${esc(n)}</span>`; }).join('<span class="slash" aria-hidden="true">/</span>');
   const heroFigures = () => `
-    <div class="figure"><span class="figure__num" id="heroAvg">${S.stats ? S.stats.avg_score : "–"}</span><span class="figure__label" id="heroCount">${S.stats ? `Community · ${plural(S.stats.rating_count, "rating")}` : "No ratings yet"}</span></div>
-    <div class="figure figure--mine"><span class="figure__num" id="heroMine">${S.score || "–"}</span><span class="figure__label">Your score</span></div>`;
+    <div class="figure"${RL.toneAttr(S.stats?.avg_score)}><span class="figure__num" id="heroAvg">${S.stats ? S.stats.avg_score : "–"}</span><span class="figure__label" id="heroCount">${S.stats ? `Community · ${plural(S.stats.rating_count, "rating")}` : "No ratings yet"}</span></div>
+    <div class="figure figure--mine"${RL.toneAttr(S.score)}><span class="figure__num" id="heroMine">${S.score || "–"}</span><span class="figure__label">Your score</span></div>`;
 
   view().innerHTML = `
     <article class="album2">
@@ -1524,7 +1526,7 @@ async function renderAlbum(id) {
             <div class="rate__row">
               <div id="rec">${recordSvg(S.score)}</div>
               <div class="rate__side">
-                <div class="rating-stat"><span class="t-meta">Your score</span><span class="score score--lg" id="myScore">${S.score || "–"}<small> /10</small></span></div>
+                <div class="rating-stat"><span class="t-meta">Your score</span><span class="score score--lg" id="myScore"${RL.toneAttr(S.score)}>${S.score || "–"}<small> /10</small></span></div>
                 <p class="t-label" id="pickLabel">${S.mine ? "Change your score" : "Tap a score to rate"}</p>
               </div>
             </div>
@@ -1590,6 +1592,7 @@ async function renderAlbum(id) {
   const paintRating = () => {
     $("#rec").innerHTML = recordSvg(S.score);
     $("#myScore").innerHTML = `${S.score || "–"}<small> /10</small>`;
+    setTone($("#myScore"), S.score);
     $$("#picker button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.s === S.score)));
     $("#picker").setAttribute("aria-busy", String(S.busy));
     $("#pickLabel").textContent = S.mine ? "Change your score" : "Tap a score to rate";
@@ -1612,6 +1615,7 @@ async function renderAlbum(id) {
     $("#heroAvg").textContent = S.stats ? S.stats.avg_score : "–";
     $("#heroCount").textContent = S.stats ? `Community · ${plural(S.stats.rating_count, "rating")}` : "No ratings yet";
     $("#heroMine").textContent = S.score || "–";
+    setTone($("#heroMine").parentNode, S.score); setTone($("#heroAvg").parentNode, S.stats?.avg_score);
     const t = $(".vinyl__text"); if (t) t.textContent = S.stats ? S.stats.avg_score : "";
   };
   const paintCommunity = () => { $("#communityBody").innerHTML = communityHTML(); paintHero(); };
@@ -1912,7 +1916,7 @@ function avatarHTML(p, size = "") {
 // Album artwork with the score tucked into a corner, so grids stay clean
 function tile({ href, art, title, artist, score, mine = false, note }) {
   return `<a class="tile" href="${href}" title="${esc(title)}${artist ? ` · ${esc(artist)}` : ""}">
-    <span class="tile__art">${artwork(smallArt(art), `${title}${artist ? ` by ${artist}` : ""}`)}${score != null ? `<span class="tile__score${mine ? " tile__score--mine" : ""}"><span class="sr">Score: </span>${score}</span>` : ""}</span>
+    <span class="tile__art">${artwork(smallArt(art), `${title}${artist ? ` by ${artist}` : ""}`)}${score != null ? `<span class="tile__score${mine ? " tile__score--mine" : ""}"${RL.toneAttr(score)}><span class="sr">Score: </span>${score}</span>` : ""}</span>
     <span class="tile__title">${esc(title)}</span>${note ? `<span class="tile__note">${esc(note)}</span>` : ""}</a>`;
 }
 // A list card: cover collage, title, creator (when browsing other people's lists) and details.
