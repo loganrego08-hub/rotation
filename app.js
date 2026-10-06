@@ -410,17 +410,20 @@ $("#authForm").addEventListener("submit", async (e) => {
 });
 
 /* ==========================================================================
-   Search dropdown with keyboard navigation
+   Search: ranking pipeline, autocomplete combobox and the results page
+   Candidates come from /api/search (MusicBrainz, cached at the edge), plus Rotation's own albums from Supabase (RPC search_albums).
+   lib.js ranks them: text match, Rotation ratings, Billboard presence, release type, noise penalties.
    ========================================================================== */
-/* Two modes share one form: "menu" (hero) shows a dropdown and Enter opens the
-   full results page; "page" (the Search view) renders results inline and adds filters. */
-let searchTimer, searchSeq = 0;
+let searchTimer, searchSeq = 0, suggestAbort = null, optSeq = 0;
 const SEARCH_TYPES = [["album", "Albums"], ["ep", "EPs"], ["single", "Singles"], ["compilation", "Compilations"], ["live", "Live albums"], ["soundtrack", "Soundtracks"], ["any", "All types"]];
+// The type filter is remembered between searches, but the URL always spells it out, so a shared link means the same thing to everyone
+const SEARCH_TYPE_KEY = "rotation:searchType";
+const storedType = () => { try { const t = localStorage.getItem(SEARCH_TYPE_KEY); return SEARCH_TYPES.some(([v]) => v === t) ? t : "album"; } catch { return "album"; } };
+const rememberType = (t) => { try { localStorage.setItem(SEARCH_TYPE_KEY, t); } catch {} };
 const hasFilters = (f = {}) => !!((f.type && f.type !== "album") || f.from || f.to || f.genre || f.artist);
-// Filters live in the URL so a filtered search can be shared or reloaded
 const searchHref = (term, f = {}) => {
   const q = new URLSearchParams();
-  if (f.type && f.type !== "album") q.set("type", f.type);
+  if (f.type) q.set("type", f.type);
   ["from", "to", "genre", "artist"].forEach((k) => { if (f[k]) q.set(k, f[k]); });
   const qs = q.toString();
   return `#/search${term ? "/" + encodeURIComponent(term) : qs ? "/" : ""}${qs ? "?" + qs : ""}`;
@@ -433,10 +436,89 @@ function parseSearchHash(h) {
   let term = ""; try { term = decodeURIComponent(path || ""); } catch {}
   return { term, f };
 }
-const searchForm = ({ mode, value = "", cls = "" }) => `<form class="search ${cls}" role="search" data-searchform>
+
+/* ---------- Pipeline ---------- */
+const apiTerm = (t) => t.trim().toLowerCase().replace(/\s+/g, " ");   // one spelling per query so the edge cache is shared
+let billboardMap = null;
+function billboardSignal() {
+  billboardMap = billboardMap || billboard("billboard-200").then((c) => new Map(c.items.map((x) => [RL.baseTitle(x.title) + "|" + RL.normText(x.artist), x.rank]))).catch(() => new Map());
+  return billboardMap;
+}
+async function ratingSignals(ids) {
+  const m = new Map();
+  if (!sb || !ids.length) return m;
+  try {
+    const { data } = await sb.from("album_catalog").select("album_id, rating_count").in("album_id", ids.slice(0, 80)).gt("rating_count", 0);
+    (data || []).forEach((r) => m.set(r.album_id, r.rating_count));
+  } catch {}
+  return m;
+}
+// Rotation's own albums that match (typo and accent tolerant). Missing RPC (migration v10 not applied) just means no extra hits.
+async function rotationHits(term, f) {
+  if (!sb || RL.normText(term).length < 2 || f.from || f.to || f.genre || f.artist) return [];
+  try {
+    const { data, error } = await sb.rpc("search_albums", { q: term, lim: 8 });
+    if (error) return [];
+    const want = !f.type || f.type === "any" ? null : f.type;
+    return (data || []).map((r) => {
+      const t = String(r.album_type || "");
+      return { id: r.album_id, title: r.title, artist: r.artist, artistId: r.artist_id, date: r.release_date || "", cover_url: r.cover_url, rating_count: r.rating_count, inRotation: true,
+        type: /single/i.test(t) ? "Single" : /\bep\b/i.test(t) ? "EP" : "Album", secondary: /compilation/i.test(t) ? ["Compilation"] : /live/i.test(t) ? ["Live"] : /soundtrack/i.test(t) ? ["Soundtrack"] : [] };
+    }).filter((c) => !want || RL.kindOf(c) === want);
+  } catch { return []; }
+}
+async function directCandidates(term, f, { limit, offset, prefix }) {
+  const plan = RL.searchPlan(term, f, { prefix });
+  const get = async (q, off) => ((await mbSlow(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=${limit}&offset=${off}`))["release-groups"] || []).map(RL.candidateOf);
+  let groups = plan.strict ? await get(plan.strict, offset) : [];
+  if (offset === 0 && !prefix && term && plan.fuzzy && plan.fuzzy !== plan.strict) {
+    const ranked = RL.rankAlbums(term, groups);
+    if (ranked.length < 3 || ranked[0].text < 0.75) { const more = await get(plan.fuzzy, 0).catch(() => []), seen = new Set(groups.map((g) => g.id)); groups = groups.concat(more.filter((g) => !seen.has(g.id))); }
+  }
+  if (offset === 0 && !prefix && term && plan.tagged && RL.isWeakPool(groups, term)) {   // same sweep as api/search.js
+    const seen = new Set(groups.map((g) => g.id));
+    for (const off of [0, 100]) {
+      const more = ((await mbSlow(`${MB}/release-group?query=${encodeURIComponent(plan.tagged)}&fmt=json&limit=100&offset=${off}`).catch(() => ({})))["release-groups"] || []).map(RL.candidateOf);
+      groups = groups.concat(more.filter((g) => !seen.has(g.id) && seen.add(g.id)));
+      if (more.length < 100) break;
+    }
+  }
+  return groups;
+}
+async function candidatesFor(term, f, { limit = 50, offset = 0, prefix = false, signal } = {}) {
+  const p = new URLSearchParams({ q: apiTerm(term), limit, offset });
+  if (prefix) p.set("prefix", "1");
+  ["type", "from", "to", "genre", "artist"].forEach((k) => { if (f[k]) p.set(k, f[k]); });
+  try {
+    const r = await fetch(`/api/search?${p}`, { signal });
+    if (r.ok) { const j = await r.json(); if (Array.isArray(j.groups)) return j.groups; }
+  } catch (e) { if (e.name === "AbortError") throw e; }
+  // The function is unavailable (not deployed yet, or down): fall back to asking MusicBrainz directly, throttled
+  return directCandidates(term, f, { limit, offset, prefix });
+}
+async function runSearch(term, f, { limit = 50, offset = 0, prefix = false, signal, onRotation } = {}) {
+  const rotP = offset === 0 ? rotationHits(term, f) : Promise.resolve([]);
+  if (onRotation) rotP.then(onRotation);
+  const [groups, rot, bb] = await Promise.all([candidatesFor(term, f, { limit, offset, prefix, signal }), rotP, billboardSignal()]);
+  const byId = new Map();
+  groups.forEach((c) => byId.set(c.id, c));
+  rot.forEach((c) => byId.set(c.id, { ...(byId.get(c.id) || {}), ...c }));
+  const cands = [...byId.values()];
+  const signals = { ratings: await ratingSignals(cands.map((c) => c.id)), billboard: bb, rotation: new Set(rot.map((r) => r.id)) };
+  const opts = { typeChosen: !!f.type && f.type !== "any" };
+  const ranked = RL.rankAlbums(term, cands, signals, opts);
+  return { ranked, signals, opts, rawCount: groups.length, card: offset === 0 ? RL.artistCard(term, ranked, signals, opts) : null, did: offset === 0 ? RL.didYouMean(term, ranked) : null };
+}
+const KIND_LABEL = { ep: "EP", single: "Single", live: "Live album", soundtrack: "Soundtrack", compilation: "Compilation", other: "Other" };
+const candMeta = (c) => [KIND_LABEL[c.kind] || "", year(c.date), c.disambiguation].filter(Boolean).join(" · ") || null;
+const candArt = (c) => c.cover_url || coverUrl(c.id, 250);
+
+/* ---------- Search form and autocomplete (ARIA combobox) ---------- */
+const searchForm = ({ mode, value = "", cls = "" }) => { const id = `smenu${++optSeq}`; return `<form class="search ${cls}" role="search" data-searchform>
   ${icon("search", "search__icon")}
-  <input class="input input--search" type="search" data-search="${mode}" value="${esc(value)}" placeholder="Search albums and artists" autocomplete="off" aria-label="Search albums and artists"${mode === "menu" ? ' aria-expanded="false"' : ""}>
-  ${mode === "menu" ? `<div class="menu menu--search" role="listbox" hidden></div>` : ""}</form>`;
+  <input class="input input--search" type="search" data-search="${mode}" value="${esc(value)}" placeholder="Search albums and artists" autocomplete="off" aria-label="Search albums and artists"
+    role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="${id}">
+  <div class="menu menu--search" id="${id}" role="listbox" aria-label="Suggestions" hidden></div></form>`; };
 const searchInput = (e) => e.target.closest?.("[data-search]");
 const menuOf = (input) => input.closest(".search")?.querySelector(".menu--search");
 function setResults(input, open) {
@@ -444,6 +526,7 @@ function setResults(input, open) {
   if (!m) return;
   m.hidden = !open;
   input.setAttribute("aria-expanded", String(open));
+  if (!open) input.removeAttribute("aria-activedescendant");
 }
 function readSearchFilters() {
   const f = {};
@@ -452,23 +535,75 @@ function readSearchFilters() {
   if (f.to) f.to = f.to.replace(/\D/g, "").slice(0, 4);
   return f;
 }
+function suggestHTML(term, res, f) {
+  const best = res.ranked[0];
+  const artists = best ? RL.rankArtists(term, res.ranked, res.signals, res.opts).filter((a) => a.text >= 0.85 && a.relevance >= best.relevance * RL.SEARCH_WEIGHTS.artistCardShare).slice(0, 2) : [];
+  const albums = res.ranked.slice(0, Math.max(3, 8 - artists.length));
+  let n = 0; const oid = () => `${"sopt"}-${++n}`;
+  return `${artists.length ? `<div class="menu__group" role="group" aria-label="Artists">${artists.map((a) => `
+      <a class="menu__item" role="option" id="${oid()}" aria-selected="false" href="#/artist/${a.id}"><span class="avatar" aria-hidden="true">${esc(a.name.charAt(0).toUpperCase())}</span>
+      <span class="menu__text"><strong>${esc(a.name)}</strong><span>Artist</span></span></a>`).join("")}</div>` : ""}
+    ${albums.length ? `<div class="menu__group" role="group" aria-label="Albums">${albums.map((c) => `
+      <a class="menu__item" role="option" id="${oid()}" aria-selected="false" href="#/album/${c.id}">${artwork(candArt(c), c.title, "thumb")}
+      <span class="menu__text"><strong>${esc(c.title)}</strong><span>${esc([c.artist, year(c.date), KIND_LABEL[c.kind]].filter(Boolean).join(" · "))}</span></span></a>`).join("")}</div>` : ""}
+    <div class="menu__group"><a class="menu__item" role="option" id="${oid()}" aria-selected="false" href="${searchHref(term, f)}">${icon("search")}<span class="menu__text"><strong>See all results for “${esc(term)}”</strong></span></a></div>`;
+}
+async function suggest(input, term) {
+  if (suggestAbort) suggestAbort.abort();
+  const ctl = suggestAbort = new AbortController(), seq = ++searchSeq, results = menuOf(input);
+  if (!results) return;
+  const f = { type: storedType() }, current = () => seq === searchSeq && input.isConnected && results.isConnected;
+  setResults(input, true);
+  if (!results.children.length) results.innerHTML = `<p class="menu__note" role="status">Searching…</p>`;
+  let painted = false;
+  try {
+    const res = await runSearch(term, f, { limit: 25, prefix: true, signal: ctl.signal,
+      // Rotation's own albums arrive first from Supabase, so show them while MusicBrainz is still answering
+      onRotation: (rot) => { if (!current() || painted || !rot.length) return; const r = RL.rankAlbums(term, rot, { rotation: new Set(rot.map((x) => x.id)) }, { typeChosen: true }); if (r.length) results.innerHTML = suggestHTML(term, { ranked: r, signals: {}, opts: {} }, f); } });
+    if (!current()) return;
+    painted = true;
+    results.innerHTML = res.ranked.length ? suggestHTML(term, res, f)
+      : `<p class="menu__note" role="status">No matches for “${esc(term)}”. Try fewer words or check the spelling.</p><div class="menu__group"><a class="menu__item" role="option" id="sopt-1" aria-selected="false" href="${searchHref(term, f)}">${icon("search")}<span class="menu__text"><strong>Search all types</strong></span></a></div>`;
+  } catch (e) {
+    if (e.name === "AbortError" || !current()) return;
+    results.innerHTML = `<p class="menu__note" role="status">Search is unavailable right now. Try again in a moment.</p>`;
+  }
+}
+function openSearchOverlay() {
+  const old = $("#searchOverlay");
+  if (old) return $("[data-search]", old).focus();
+  const o = document.createElement("div");
+  o.id = "searchOverlay"; o.className = "overlay";
+  o.innerHTML = `<div class="overlay__box" role="dialog" aria-modal="true" aria-label="Search">${searchForm({ mode: "menu", cls: "search--hero" })}<p class="t-meta">Esc to close</p></div>`;
+  document.body.appendChild(o);
+  const close = () => { o.remove(); window.removeEventListener("hashchange", close); document.removeEventListener("keydown", onKey, true); };
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  o.addEventListener("mousedown", (e) => { if (e.target === o) close(); });
+  o.addEventListener("click", (e) => { if (e.target.closest(".menu--search a")) close(); });
+  window.addEventListener("hashchange", close);
+  document.addEventListener("keydown", onKey, true);
+  $("[data-search]", o).focus();
+}
 document.addEventListener("input", (e) => {
   const filter = e.target.closest?.("#sfilters [data-f]");
   const input = searchInput(e);
   if (!input && !filter) return;
   clearTimeout(searchTimer);
-  if (filter) { searchTimer = setTimeout(() => pageSearch($("[data-search]").value.trim(), readSearchFilters(), true), filter.tagName === "SELECT" ? 0 : 450); return; }
+  if (filter) {
+    if (filter.dataset.f === "type") rememberType(filter.value);
+    searchTimer = setTimeout(() => pageSearch($("[data-search]").value.trim(), readSearchFilters(), true), filter.tagName === "SELECT" ? 0 : 450);
+    return;
+  }
   const v = input.value.trim();
-  if (input.dataset.search === "page") { searchTimer = setTimeout(() => pageSearch(v, readSearchFilters(), true), 350); return; }
-  if (v.length < 2) return setResults(input, false);
-  searchTimer = setTimeout(() => search(input, v), 320);
+  if (RL.normText(v).length < 2) { if (suggestAbort) suggestAbort.abort(); return setResults(input, false); }
+  searchTimer = setTimeout(() => suggest(input, v), 180);
 });
 document.addEventListener("keydown", (e) => {
   // "/" jumps to search from anywhere that isn't a text field
   if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) && !document.activeElement?.isContentEditable) {
     e.preventDefault();
     const box = $("[data-search]");
-    return box ? box.focus() : (location.hash = "#/search");
+    return box ? box.focus() : openSearchOverlay();
   }
   // Arrow keys move through search result cards
   const card = e.target.closest?.("#sres .album-card, #sres .artist-card");
@@ -479,30 +614,35 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   const input = searchInput(e);
-  if (!input || input.dataset.search !== "menu") return;
+  if (!input) return;
   const menu = menuOf(input);
+  if (e.key === "Escape" && menu && !menu.hidden) { setResults(input, false); return; }
   const items = $$(".menu__item", menu);
   const i = items.findIndex((x) => x.getAttribute("aria-selected") === "true");
-  if (e.key === "Escape") { setResults(input, false); input.blur(); }
-  if (!items.length || menu.hidden) return;
+  if (!items.length || menu.hidden) { if (e.key === "ArrowDown" && menu && RL.normText(input.value).length >= 2) suggest(input, input.value.trim()); return; }
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     const n = (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
     items.forEach((x, k) => x.setAttribute("aria-selected", String(k === n)));
+    input.setAttribute("aria-activedescendant", items[n].id);
     items[n].scrollIntoView({ block: "nearest" });
   }
-  if (e.key === "Enter" && i >= 0) { e.preventDefault(); items[i].click(); }
+  if (e.key === "Enter" && i >= 0) { e.preventDefault(); items[i].click(); }   // no selection: the form submits to the full results page
 });
 document.addEventListener("submit", (e) => {
   const form = e.target.closest?.("[data-searchform]");
   if (!form) return;
   e.preventDefault();
   const input = $("[data-search]", form), v = input.value.trim();
-  if (input.dataset.search === "page") { clearTimeout(searchTimer); return pageSearch(v, readSearchFilters(), true); }
-  if (v.length < 2) return input.focus();
   clearTimeout(searchTimer);
+  if (suggestAbort) suggestAbort.abort();
+  if (RL.normText(v).length < 2 && input.dataset.search !== "page") return input.focus();
   setResults(input, false);
-  location.hash = searchHref(v);
+  if (input.dataset.search === "page") {
+    const f = readSearchFilters(), h = searchHref(v, f);
+    return location.hash === h ? pageSearch(v, f) : (location.hash = h);   // a new term is a new history entry, so Back works
+  }
+  location.hash = searchHref(v, { type: storedType() });
 });
 document.addEventListener("click", (e) => {
   $$(".menu--search").forEach((m) => { if (!m.hidden && !m.closest(".search").contains(e.target)) setResults($("[data-search]", m.closest(".search")), false); });
@@ -510,24 +650,16 @@ document.addEventListener("click", (e) => {
   if (link) { const input = $("[data-search]", link.closest(".search")); setResults(input, false); input.value = ""; }
 });
 
-// The same title by the same artist can appear more than once; keep the best-ranked one.
-// Alternate editions are already merged into one release group by MusicBrainz.
+// The same title by the same artist can appear more than once; keep the best-ranked one (used by Surprise me).
 const rgKey = (g) => norm(g.title) + "|" + norm(artistName(g["artist-credit"]));
 function dedupeGroups(list, seen = new Set()) {
   const out = [];
   for (const g of list) { const k = rgKey(g); if (!g.title || seen.has(k)) continue; seen.add(k); out.push(g); }
   return out;
 }
-async function fetchSearch(term, f = {}, { artists = 0, albums = 24, offset = 0 } = {}) {
-  const q = albumQuery(term, f);
-  const [a, g] = await Promise.all([
-    artists && term ? getJSON(`${MB}/artist?query=${encodeURIComponent(lucene(term))}&fmt=json&limit=${artists}`).catch(() => ({ artists: [] })) : { artists: [] },
-    q ? getJSON(`${MB}/release-group?query=${encodeURIComponent(q)}&fmt=json&limit=${albums}&offset=${offset}`) : { "release-groups": [], count: 0 },
-  ]);
-  return { ar: (a.artists || []).filter((x) => x.score >= 90), al: g["release-groups"] || [], count: g.count || 0 };
-}
-const rgMeta = (g) => { const t = typeLabel(g); return [t && t !== "Studio album" ? t : "", year(g["first-release-date"]), g.disambiguation].filter(Boolean).join(" · ") || null; };
 
+/* ---------- Results page ---------- */
+const PAGE = 50;
 async function pageSearch(term, f = {}, replace = false) {
   const el = $("#sres");
   if (!el) return;
@@ -535,77 +667,58 @@ async function pageSearch(term, f = {}, replace = false) {
   if (replace) history.replaceState(null, "", searchHref(term, f));
   const summary = $("#sfilters")?.closest("details")?.querySelector("summary");
   if (summary) summary.textContent = hasFilters(f) ? "Filters (active)" : "Filters";
-  if (term.length < 2 && !hasFilters(f)) {
-    el.innerHTML = emptyState({ iconName: "search", title: "Search Rotation", body: "Find any album or artist, then narrow it by type, year, genre or artist. Press / anywhere to start.", compact: true });
+  const searchable = RL.normText(term).length >= 2;
+  if (!searchable && !hasFilters(f)) {
+    el.innerHTML = emptyState({ iconName: "search", title: "Search Rotation", body: term ? "Type at least two characters." : "Find any album or artist, then narrow it by type, year, genre or artist. Press / anywhere to start.", compact: true });
     return;
   }
   el.innerHTML = `${loadingLabel("Searching")}<div class="grid">${skCards(8)}</div>`;
-  const seen = new Set();
-  let offset = 0, shown = 0, total = 0;
-  const cardsFor = (list) => list.map((g) => albumCard({ id: g.id, title: g.title, artist: artistName(g["artist-credit"]), art: coverUrl(g.id, 250) }, { meta: rgMeta(g) })).join("");
+  const q = searchable ? term : "";
   const retry = () => pageSearch(term, f);
   try {
-    const first = await fetchSearch(term, f, { artists: 6, albums: 24, offset });
+    const res = await runSearch(q, f, { limit: PAGE });
     if (seq !== searchSeq || !el.isConnected) return;
-    let al = dedupeGroups(first.al, seen);
-    offset += first.al.length; total = first.count; shown = al.length;
-    if (!first.ar.length && !al.length) {
-      el.innerHTML = emptyState({ iconName: "search", title: term ? `No matches for “${term}”` : "No albums match these filters",
-        body: hasFilters(f) ? "Try loosening the year range, type or genre, or clear the filters." : "Try the artist and album together, or check the spelling.",
-        actions: hasFilters(f) ? button("Clear filters", { id: "emptyClear" }) : "", compact: true });
+    const keyOf = (r) => RL.normText(r.artist) + "|" + RL.baseTitle(r.title) + "|" + r.kind, seen = new Set(res.ranked.map(keyOf));
+    let offset = PAGE, canMore = res.rawCount >= PAGE && offset < MB_WINDOW;
+    if (!res.ranked.length && !canMore) {
+      el.innerHTML = emptyState({ iconName: "search", title: term ? `No results for “${term}”` : "No albums match these filters",
+        body: hasFilters(f) ? "Try loosening the year range, type or genre, or clear the filters." : "Try fewer words, or check the spelling. You can also search the artist and album together.",
+        actions: hasFilters(f) ? button("Clear filters", { id: "emptyClear" }) : (f.type && f.type !== "any" ? button("Search all types", { href: searchHref(term, { ...f, type: "any" }) }) : ""), compact: true });
       $("#emptyClear")?.addEventListener("click", () => { $("#clearFilters")?.click(); });
       return;
     }
+    const { top, more } = RL.splitTop(res.ranked);
+    const card = (c) => albumCard({ id: c.id, title: c.title, artist: c.artist, art: candArt(c) }, { meta: candMeta(c) });
     el.innerHTML = `
-      ${first.ar.length ? `<section class="section">${sectionHead("Artists")}<div class="grid grid--artists">${first.ar.map((a) =>
-        artistCard({ id: a.id, name: a.name, sub: [a.type, a.area?.name].filter(Boolean).join(", ") })).join("")}</div></section>` : ""}
-      <section class="section">${sectionHead("Albums", { sub: "", id: "sCount" })}
-        <div class="grid" id="sAlbums">${cardsFor(al)}</div><div id="sMore" style="margin-top:var(--s-6)"></div></section>`;
+      ${res.did ? `<p class="did-you-mean" role="status">Did you mean <a class="textlink" href="${searchHref(res.did, f)}">${esc(res.did)}</a>?</p>` : ""}
+      ${res.card ? `<section class="section" aria-label="Artist"><div class="grid grid--artists">${artistCard({ id: res.card.id, name: res.card.name, sub: "Artist" })}</div></section>` : ""}
+      <section class="section">${sectionHead("Top results")}<div class="grid" id="sTop">${top.map(card).join("")}</div></section>
+      <section class="section" id="sMoreSec"${more.length ? "" : " hidden"}>${sectionHead("More results")}<div class="grid" id="sMoreGrid">${more.map(card).join("")}</div></section>
+      <div id="sMore" class="search__more"></div>`;
+    let busy = false, io;
     const paint = () => {
-      const hasMore = offset < Math.min(total, MB_WINDOW); // MusicBrainz won't return results past its first 500
-      $("#sCount").textContent = hasMore ? `Showing ${shown} of ${total.toLocaleString()} matches. Duplicate entries are hidden.`
-        : total > MB_WINDOW ? `Showing the top ${shown} of ${total.toLocaleString()} matches. Narrow your search to see others.` : plural(shown, "album");
-      $("#sCount").setAttribute("role", "status");
-      $("#sMore").innerHTML = hasMore ? `<button type="button" class="btn" id="sShowMore"><span>Show more</span></button>` : "";
-      $("#sShowMore")?.addEventListener("click", more);
+      $("#sMore").innerHTML = canMore ? `<button type="button" class="btn" id="sLoadMore"><span>Load more results</span></button>` : (top.length + $$("#sMoreGrid > *").length > PAGE / 2 ? `<p class="t-meta">That's everything we found.</p>` : "");
+      $("#sLoadMore")?.addEventListener("click", loadMore);
+      if (io) io.disconnect();
+      if (canMore && "IntersectionObserver" in window) { io = new IntersectionObserver((es) => { if (!el.isConnected) return io.disconnect(); if (es.some((x) => x.isIntersecting) && !busy) $("#sLoadMore")?.click(); }, { rootMargin: "600px" }); io.observe($("#sMore")); }
     };
-    async function more() {
-      const btn = $("#sShowMore"); btn.setAttribute("aria-busy", "true");
+    async function loadMore() {
+      if (busy) return; busy = true;
+      const btn = $("#sLoadMore"); btn?.setAttribute("aria-busy", "true");
       try {
-        const next = await fetchSearch(term, f, { albums: Math.min(24, MB_WINDOW - offset), offset });
-        if (seq !== searchSeq || !el.isConnected) return;
-        const add = dedupeGroups(next.al, seen);
-        offset += next.al.length; shown += add.length;
-        $("#sAlbums").insertAdjacentHTML("beforeend", cardsFor(add));
-        if (!next.al.length) total = shown;
-        paint();
-      } catch { btn.removeAttribute("aria-busy"); toast("Couldn't load more results. Try again.", "error"); }
+        for (let tries = 0; tries < 3 && canMore; tries++) {
+          const next = await runSearch(q, f, { limit: PAGE, offset });
+          if (seq !== searchSeq || !el.isConnected) return;
+          offset += PAGE; canMore = next.rawCount >= PAGE && offset < MB_WINDOW;
+          const add = next.ranked.filter((r) => { const k = keyOf(r); if (seen.has(k)) return false; seen.add(k); return true; });
+          if (add.length) { $("#sMoreSec").hidden = false; $("#sMoreGrid").insertAdjacentHTML("beforeend", add.map(card).join("")); break; }
+        }
+      } catch { toast("Couldn't load more results. Try again.", "error"); }
+      busy = false; paint();
     }
     paint();
   } catch {
     if (seq === searchSeq && el.isConnected) el.innerHTML = errorState({ title: "Search is unavailable", body: "MusicBrainz may be busy or slow. Try again in a moment.", retry });
-  }
-}
-
-async function search(input, term) {
-  const seq = ++searchSeq, results = menuOf(input);
-  setResults(input, true);
-  results.innerHTML = `<p class="menu__note">Searching…</p>`;
-  try {
-    const { ar, al: raw } = await fetchSearch(term, {}, { artists: 3, albums: 10 });
-    const al = dedupeGroups(raw).slice(0, 6);
-    if (seq !== searchSeq) return;
-    if (!ar.length && !al.length) { results.innerHTML = `<p class="menu__note">No matches for “${esc(term)}”. Try the artist and album together.</p>`; return; }
-    results.innerHTML = `
-      ${ar.length ? `<div class="menu__group"><div class="menu__label">Artists</div>${ar.map((a) => `
-        <a class="menu__item" role="option" href="#/artist/${a.id}"><span class="avatar" aria-hidden="true">${esc(a.name.charAt(0).toUpperCase())}</span>
-        <span class="menu__text"><strong>${esc(a.name)}</strong><span>${esc([a.type, a.area?.name].filter(Boolean).join(", ") || "Artist")}</span></span></a>`).join("")}</div>` : ""}
-      ${al.length ? `<div class="menu__group"><div class="menu__label">Albums</div>${al.map((g) => `
-        <a class="menu__item" role="option" href="#/album/${g.id}">${artwork(coverUrl(g.id, 250), g.title, "thumb")}
-        <span class="menu__text"><strong>${esc(g.title)}</strong><span>${esc([artistName(g["artist-credit"]), year(g["first-release-date"]), g.disambiguation].filter(Boolean).join(" · "))}</span></span></a>`).join("")}</div>` : ""}
-      <div class="menu__group"><a class="menu__item" role="option" href="${searchHref(term)}">${icon("search")}<span class="menu__text"><strong>See all results for “${esc(term)}”</strong></span></a></div>`;
-  } catch {
-    if (seq === searchSeq) results.innerHTML = `<p class="menu__note">Search is unavailable right now. Try again in a moment.</p>`;
   }
 }
 
@@ -972,7 +1085,8 @@ async function renderLists(tab) {
 
 /* ---------- Search ---------- */
 function renderSearch(term, f = {}) {
-  document.title = "Search · Rotation";
+  document.title = term ? `${term} · Search · Rotation` : "Search · Rotation";
+  f = { ...f, type: f.type || storedType() };   // the URL wins; without one, the type you used last
   const genreList = [...new Set(GENRES.flatMap((g) => g.tags))];
   view().innerHTML = `<header class="page-head"><h1 class="t-page">Search</h1><p class="t-lead">Find any album or artist, then give it a score.</p></header>
     ${searchForm({ mode: "page", value: term, cls: "search--hero" })}
@@ -986,7 +1100,7 @@ function renderSearch(term, f = {}) {
         <button type="button" class="btn btn--ghost btn--sm" id="clearFilters">Clear filters</button>
       </div><datalist id="genreOptions">${genreList.map((g) => `<option value="${esc(g)}"></option>`).join("")}</datalist></details>
     <div id="sres" style="margin-top:var(--s-8)"></div>`;
-  $("#clearFilters").onclick = () => { $$("#sfilters [data-f]").forEach((el) => { el.value = el.tagName === "SELECT" ? "album" : ""; }); pageSearch($("[data-search]").value.trim(), {}, true); };
+  $("#clearFilters").onclick = () => { $$("#sfilters [data-f]").forEach((el) => { el.value = el.tagName === "SELECT" ? "album" : ""; }); rememberType("album"); pageSearch($("[data-search]").value.trim(), {}, true); };
   pageSearch(term, f);
   if (!term && !hasFilters(f)) $("[data-search]").focus();
 }

@@ -908,6 +908,15 @@ main { min-height: 100vh; min-height: 100svh; }
 .ahero__genres { gap: 0 var(--s-1); }
 .ahero__genres a, .ahero__genres span:not(.slash) { display: inline-flex; align-items: center; min-height: 36px; padding-inline: var(--s-1); }
 .ahero__genres a { text-underline-offset: 4px; }
+/* ---------- Search: overlay, did-you-mean, load more ---------- */
+.overlay { position: fixed; inset: 0; z-index: 80; display: grid; align-items: start; justify-items: center; padding: 14vh var(--gutter) var(--s-6); background: rgba(0, 0, 0, 0.6); }
+.overlay__box { width: 100%; max-width: 600px; display: grid; gap: var(--s-3); }
+.overlay__box .search { max-width: none; }
+.overlay__box .t-meta { text-align: center; }
+.did-you-mean { margin-bottom: var(--s-6); color: var(--text-2); }
+.search__more { display: grid; justify-items: center; margin: var(--s-6) 0 var(--s-10); }
+.menu--search { max-height: min(70vh, 520px); overflow-y: auto; }
+
 /* ---------- Stats dashboard ---------- */
 .stats { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-8); min-width: 0; }
 .stats > * { min-width: 0; }
