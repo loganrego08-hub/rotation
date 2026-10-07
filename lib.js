@@ -450,7 +450,49 @@
     return parts;
   }
 
-  root.RotationLib = { tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  /* ---------- Streaming services ----------
+     Every service gets a search URL that always works (the graceful fallback). Direct album and track links are found by api/listen.js.
+     Web URLs, not custom schemes: on a phone with the app installed they open in the app, otherwise in the browser. */
+  const enc = encodeURIComponent;
+  const STREAMING_SERVICES = [
+    { id: "spotify", label: "Spotify", search: (q) => `https://open.spotify.com/search/${enc(q)}` },
+    { id: "apple", label: "Apple Music", search: (q) => `https://music.apple.com/us/search?term=${enc(q)}` },
+    { id: "youtube", label: "YouTube Music", search: (q) => `https://music.youtube.com/search?q=${enc(q)}` },
+    { id: "tidal", label: "Tidal", search: (q) => `https://tidal.com/search?q=${enc(q)}` },
+    { id: "amazon", label: "Amazon Music", search: (q) => `https://music.amazon.com/search/${enc(q)}` },
+    { id: "deezer", label: "Deezer", search: (q) => `https://www.deezer.com/search/${enc(q)}` },
+    { id: "pandora", label: "Pandora", search: (q) => `https://www.pandora.com/search/${enc(q)}/all` },
+    { id: "soundcloud", label: "SoundCloud", search: (q, kind) => `https://soundcloud.com/search/${kind === "track" ? "sounds" : "albums"}?q=${enc(q)}` },
+    { id: "bandcamp", label: "Bandcamp", search: (q, kind) => `https://bandcamp.com/search?q=${enc(q)}&item_type=${kind === "track" ? "t" : "a"}` },
+    { id: "qobuz", label: "Qobuz", search: (q) => `https://www.qobuz.com/us-en/search?q=${enc(q)}` },
+  ];
+  const streamingService = (id) => STREAMING_SERVICES.find((s) => s.id === id) || null;
+  const streamingSearchUrl = (id, query, kind = "album") => { const s = streamingService(id); return s ? s.search(String(query || "").trim(), kind) : null; };
+  // "artist album" or "artist track", the words a streaming search wants
+  const listenQuery = (artist, title, track) => `${artist || ""} ${track || title || ""}`.replace(/\s+/g, " ").trim();
+  // Which service a URL belongs to, with the URL cleaned up (MusicBrainz stores streaming links on releases). null when it's not an album link we know.
+  function streamingFromUrl(raw) {
+    let u; try { u = new URL(raw); } catch { return null; }
+    const h = u.hostname.replace(/^www\./, ""), p = u.pathname, list = u.searchParams.get("list") || "";
+    if (h === "open.spotify.com" && /\/album\/\w+/.test(p)) return { service: "spotify", url: `https://open.spotify.com${p.match(/\/album\/\w+/)[0]}` };
+    if ((h === "music.apple.com" || h === "itunes.apple.com") && /\/album\//.test(p)) return { service: "apple", url: `https://music.apple.com${p}` };
+    if ((h === "tidal.com" || h === "listen.tidal.com") && /\/album\/\d+/.test(p)) return { service: "tidal", url: `https://tidal.com${p.match(/\/album\/\d+/)[0]}` };
+    if (h === "deezer.com" && /\/album\/\d+/.test(p)) return { service: "deezer", url: `https://www.deezer.com${p.match(/\/album\/\d+/)[0]}` };
+    if (h === "music.youtube.com" && list) return { service: "youtube", url: `https://music.youtube.com/playlist?list=${list}` };
+    if ((h === "youtube.com" || h === "m.youtube.com") && /^OLAK5uy/.test(list)) return { service: "youtube", url: `https://music.youtube.com/playlist?list=${list}` };
+    if (/^music\.amazon\./.test(h) && /\/albums\/\w+/.test(p)) return { service: "amazon", url: `https://${h}${p.match(/\/albums\/\w+/)[0]}` };
+    if (/\.bandcamp\.com$/.test(h) && /^\/album\//.test(p)) return { service: "bandcamp", url: `https://${h}${p}` };
+    if (h === "soundcloud.com" && /\/sets\//.test(p)) return { service: "soundcloud", url: `https://soundcloud.com${p}` };
+    if (h === "pandora.com" && /^\/artist\//.test(p)) return { service: "pandora", url: `https://www.pandora.com${p}` };
+    if (h === "qobuz.com" && /\/album\//.test(p)) return { service: "qobuz", url: `https://www.qobuz.com${p}` };
+    return null;
+  }
+  // Name matching for picking the right album or track out of a service's results
+  const stripBrackets = (s) => normText(String(s || "").replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/\s+-\s+(single|ep)\s*$/i, ""));
+  const sameArtistName = (a, b) => { a = normText(a); b = normText(b); return a.length >= 2 && b.length >= 2 && (a === b || (a.length >= 4 && b.includes(a)) || (b.length >= 4 && a.includes(b))); };
+  const sameTitleName = (a, b) => { a = stripBrackets(a); b = stripBrackets(b); if (!a || !b) return false; if (a === b) return true; const [s, l] = a.length <= b.length ? [a, b] : [b, a]; return s.length >= 6 && l.startsWith(s) && s.length / l.length >= 0.8; };   // 0.8: "Swimming" must not match "Swimming Pool"
+
+  root.RotationLib = { STREAMING_SERVICES, streamingService, streamingSearchUrl, listenQuery, streamingFromUrl, sameArtistName, sameTitleName, stripBrackets, tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
 // api/search.js shares the same ranking code as the browser
 if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;

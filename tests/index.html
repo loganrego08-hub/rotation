@@ -167,6 +167,42 @@ test("stats: decades, top genres, top artists this year", () => {
   eq(s.artists.map((a) => a.name), ["X", "Z"], "only 2026 ratings, most albums first"); eq(s.artists[0].avg, 8);
 });
 
+/* ---- streaming services ---- */
+test("streaming: every service has a working search URL for albums and tracks", () => {
+  eq(L.STREAMING_SERVICES.map((s) => s.id), ["spotify", "apple", "youtube", "tidal", "amazon", "deezer", "pandora", "soundcloud", "bandcamp", "qobuz"]);
+  const q = "Mac Miller & Co: Swimming (Deluxe)?";
+  for (const s of L.STREAMING_SERVICES) {
+    const a = L.streamingSearchUrl(s.id, q), t = L.streamingSearchUrl(s.id, q, "track");
+    ok(/^https:\/\//.test(a) && /^https:\/\//.test(t), s.id + " is https");
+    ok(a.includes(encodeURIComponent(q)) && !/ /.test(a) && !a.includes("&Co"), s.id + " encodes the query: " + a);
+  }
+  eq(L.streamingSearchUrl("spotify", "Nirvana Nevermind"), "https://open.spotify.com/search/Nirvana%20Nevermind");
+  eq(L.streamingSearchUrl("youtube", "a b"), "https://music.youtube.com/search?q=a%20b");
+  ok(L.streamingSearchUrl("soundcloud", "x", "track").includes("/sounds?q=") && L.streamingSearchUrl("soundcloud", "x").includes("/albums?q="));
+  ok(L.streamingSearchUrl("bandcamp", "x", "track").endsWith("item_type=t") && L.streamingSearchUrl("bandcamp", "x").endsWith("item_type=a"));
+  eq(L.streamingSearchUrl("nope", "x"), null);
+});
+test("streaming: listenQuery builds 'artist album' or 'artist track'", () => {
+  eq(L.listenQuery("Nirvana", "Nevermind"), "Nirvana Nevermind"); eq(L.listenQuery("Nirvana", "Nevermind", "Lithium"), "Nirvana Lithium");
+  eq(L.listenQuery("  Nirvana ", " Nevermind  "), "Nirvana Nevermind");
+});
+test("streaming: MusicBrainz links are recognised and cleaned", () => {
+  const f = (u) => L.streamingFromUrl(u);
+  eq(f("https://open.spotify.com/album/4LH4d3cOWNNsVw41Gqt2kv?si=abc"), { service: "spotify", url: "https://open.spotify.com/album/4LH4d3cOWNNsVw41Gqt2kv" });
+  eq(f("https://music.apple.com/us/album/american-heartbreak/1620257596?uo=4").service, "apple");
+  eq(f("https://tidal.com/browse/album/12345").url, "https://tidal.com/album/12345");
+  eq(f("https://www.deezer.com/en/album/302127").url, "https://www.deezer.com/album/302127");
+  eq(f("https://www.youtube.com/playlist?list=OLAK5uy_abcdef"), { service: "youtube", url: "https://music.youtube.com/playlist?list=OLAK5uy_abcdef" });
+  eq(f("https://music.amazon.com/albums/B000002UAL?foo=1").url, "https://music.amazon.com/albums/B000002UAL");
+  eq(f("https://someartist.bandcamp.com/album/first-record").service, "bandcamp");
+  eq(f("https://www.youtube.com/watch?v=xyz"), null, "a plain video is not an album link"); eq(f("https://example.com/album/1"), null); eq(f("not a url"), null);
+});
+test("streaming: artist and title matching is strict enough to avoid the wrong release", () => {
+  ok(L.sameArtistName("Zach Bryan", "Zach Bryan") && L.sameArtistName("Beyoncé", "Beyonce") && !L.sameArtistName("Zach Bryan", "Zach Top"));
+  ok(L.sameTitleName("American Heartbreak", "American Heartbreak") && L.sameTitleName("Cowboy Carter", "Cowboy Carter (Deluxe)") && L.sameTitleName("WILD (EP)", "WILD - EP"));
+  ok(!L.sameTitleName("American Heartbreak", "Pink Skies - Single") && !L.sameTitleName("Swimming", "Swimming Pool"));
+});
+
 /* ---- score colors ---- */
 test("scoreTone: ink for everything, vermilion only for 9 and 10; averages round; nothing for no score", () => {
   eq([1, 4, 5, 6, 7, 8].map(L.scoreTone), ["", "", "", "", "", ""], "no ramp below 9");
