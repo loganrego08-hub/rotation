@@ -601,6 +601,8 @@ async function signInWith(provider) {
   btn.removeAttribute("aria-busy");
   if (error) showAuthMessage(RL.authReturnMessage({ code: error.code, description: error.message }) || error.message);
 }
+// Each provider button shows only when its flag in config.js is on (the provider must also be enabled in Supabase)
+$("#authGoogle").hidden = cfg.AUTH_GOOGLE === false; $("#authApple").hidden = cfg.AUTH_APPLE !== true;
 $("#authGoogle").onclick = () => signInWith("google");
 $("#authApple").onclick = () => signInWith("apple");
 // Email link: no password; works for new and existing accounts
