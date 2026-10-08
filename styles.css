@@ -1463,3 +1463,54 @@ main { min-height: 100vh; min-height: 100svh; }
 .prose { max-width: 62ch; display: grid; gap: var(--s-3); line-height: var(--lh-body); }
 .prose p { margin: 0; }
 .prose a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ==========================================================================
+   RESPONSIVE PASS (October 2026): audited with tests/responsive-audit.js at 360, 768 and 1100px, signed in and out
+   Touch devices get 44px targets everywhere; the album header becomes a compact cover-beside-title block on phones so
+   the rating controls are one short scroll away; the 1-10 picker never drops below 44px wide on tablets.
+   ========================================================================== */
+@media (hover: none), (pointer: coarse) {
+  .btn, .tab, .select, select.select, .input, .filters > summary, .segmented button, .avatar { min-height: 44px; }
+  .tab { padding-block: 0; display: inline-flex; align-items: center; }
+  .segmented button { min-width: 44px; }
+  .avatar { min-width: 44px; }
+  .ahero__genres a { min-width: 44px; justify-content: center; }
+  .btn--sm, .chip { min-height: 44px; }
+}
+/* Tablet: the picker sits beside the record; when that leaves it narrower than ten 44px buttons it drops below the record instead of squeezing */
+.rate__row { flex-wrap: wrap; }
+.rate__side { flex: 1 1 31rem; min-width: 0; }
+@media (max-width: 760px) { .rate__side { flex-basis: 100%; } }
+@media (min-width: 761px) { .rate .picker { grid-template-columns: repeat(10, minmax(44px, 1fr)); } }
+
+/* Phone: cover beside the title, everything else full width underneath */
+@media (max-width: 600px) {
+  .ahero__inner { grid-template-columns: 112px minmax(0, 1fr); gap: var(--s-3) var(--s-4); align-items: start; padding-top: 0; }
+  .ahero__text { display: contents; }
+  .sleeve { grid-column: 1; grid-row: 1 / span 4; width: 112px; margin: 0; }
+  .sleeve .vinyl { display: none; }
+  .ahero__text > .eyebrow, .ahero__text > .ahero__title, .ahero__text > .ahero__artist, .ahero__text > .ahero__facts { grid-column: 2; min-width: 0; }
+  .ahero__text > .eyebrow { margin: 0; }
+  .ahero__text > .ahero__genres, .ahero__text > .figures, .ahero__text > .album__actions, .ahero__text > .listen__note, .ahero__text > .status-wrap { grid-column: 1 / -1; }
+  .ahero__title { font-size: clamp(1.5rem, 7.2vw, 2.1rem); line-height: 1.02; letter-spacing: -0.02em; }
+  .ahero__artist { font-size: var(--fs-sm); min-height: 0; }
+  .ahero__facts { font-size: var(--fs-xs); }
+  .figures { gap: var(--s-4) var(--s-6); justify-content: space-between; }
+}
+/* Phone: artist results are compact rows (a 56px initial beside the name) instead of full-width squares */
+@media (max-width: 600px) {
+  .grid--artists { grid-template-columns: minmax(0, 1fr); gap: 0; border-top: 1px solid var(--border-strong); }
+  .grid--artists .artist-card { grid-template-columns: 56px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; gap: var(--s-3); padding: var(--s-2) 0; border-bottom: 1px solid var(--border); min-height: 72px; }
+  .grid--artists .artist-card__img { width: 56px; font-size: 1.5rem; }
+}
+/* Phone: profile stats sit in an even grid (3 across) instead of ragged wrapping rows; long display names break instead of stretching the page */
+@media (max-width: 600px) {
+  .profile__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4) var(--s-3); }
+  .profile__stats .stat__label { font-size: 0.6875rem; letter-spacing: 0.06em; }
+  .profile .t-title { overflow-wrap: anywhere; font-size: clamp(1.75rem, 8vw, 2.5rem); }
+}
+/* Touch: the activity feed's avatar link is a full 44px target */
+@media (hover: none), (pointer: coarse) {
+  .feed-item, .feed-item { grid-template-columns: 44px minmax(0, 1fr) 56px; }
+  .feed-item .avatar { width: 44px; height: 44px; min-width: 44px; }
+}

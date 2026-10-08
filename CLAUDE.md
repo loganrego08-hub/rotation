@@ -187,3 +187,9 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Public profile pages get share metadata like albums and lists (`profileMeta`, `api/page.js` kind=profile, only from the `public_profiles` view; private or missing profiles get the generic page). Public profiles are in the sitemap.
 - Paging: Supabase returns at most 1000 rows per request without saying so, so anything that must be complete (library, data export) goes through `fetchAll` (ordered query ending in a unique column). Schema v13 added indexes for follows, albums (artist, release_date, genres) and ratings (user, updated_at).
   `album_catalog` aggregates ratings live on every read (always correct, never client-supplied); it is instant at current size. If it gets slow (tens of thousands of ratings) replace it with a trigger-maintained summary table.
+
+## Responsive rules (October 2026 pass; the last block of styles.css, "RESPONSIVE PASS")
+- Touch devices (`hover: none` / `pointer: coarse`) get 44px minimum targets on buttons, tabs, selects, inputs, filter summaries, segmented controls, avatars and feed avatars. Check with `tests/responsive-audit.js` in the Mobile preset.
+- Album header on phones (<= 600px): 112px cover beside title/artist/facts; genres, scores and actions run full width underneath so "Rate this album" is on the first screen. `.ahero__text` becomes `display: contents` there, so do not wrap its children.
+- The 1-10 picker is 5 columns up to 760px and 10 columns of at least 44px above that; on tablets it drops below the record rather than squeezing (`.rate__row` wraps).
+- Artist results are 56px rows on phones; profile stats are a 3-column grid on phones; list reordering keeps focus on the moved row and announces the new position.

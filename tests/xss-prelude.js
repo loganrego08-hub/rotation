@@ -5,8 +5,13 @@
   const scenario = q.get("s") || "/";
   const loggedIn = q.get("in") === "1";
   const UUID = "11111111-2222-4333-8444-555555555555";
-  const P = `"><img src=x onerror="window.__xss=(window.__xss||0)+1"><svg onload="window.__xss=(window.__xss||0)+1"></svg>'`;
-  const COVER = `https://x.test/a.jpg" onerror="window.__xss=(window.__xss||0)+1" x="`;
+  // ?benign=1 swaps the hostile strings for realistic, long ones and a real cover, so the same harness can be used to look at layouts (tests/responsive-audit.js)
+  const benign = q.get("benign") === "1";
+  const P = benign ? "A Very Long Album Title That Keeps Going: The Deluxe Edition (Remastered 2024)" : `"><img src=x onerror="window.__xss=(window.__xss||0)+1"><svg onload="window.__xss=(window.__xss||0)+1"></svg>'`;
+  const COVER = benign ? "https://coverartarchive.org/release-group/b1392450-e666-3926-a536-22c65f834433/front-250" : `https://x.test/a.jpg" onerror="window.__xss=(window.__xss||0)+1" x="`;
+  // Layout shift total, for the responsive audit
+  window.__cls = 0;
+  try { new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: "layout-shift", buffered: true }); } catch {}
   window.__xss = 0;
   window.__scenario = scenario;
 
@@ -24,11 +29,11 @@
     TEXT.forEach((k) => { r[k] = P; });
     Object.assign(r, NUM);
     r.cover_url = COVER; r.avatar_cover = COVER; r.actor_avatar = COVER;
-    r.username = "xss_user"; r.author_username = "xss_user"; r.actor_username = "xss_user";   // usernames are DB-constrained to [a-z0-9_]; they also appear in URLs
+    r.username = "xss_user"; r.author_username = "xss_user"; r.actor_username = "xss_user"; if (benign) { r.display_name = "Alexandria Montgomery-Featherstonehaugh"; r.bio = "I rate everything I hear and write too many words about it. Currently obsessed with long, strange records from the seventies and whatever just came out this Friday."; r.body = "This one took a few listens, then it clicked. The second half is better than the first, and the closing track is the reason I keep coming back to it. ".repeat(3); r.thoughts = r.body; }   // usernames are DB-constrained to [a-z0-9_]; they also appear in URLs
     r.release_date = "1999-05-05";
     r.kind = "review"; r.event_key = "r:" + UUID;
     r.genres = [P, "rock"]; r.standout_tracks = [P]; r.covers = [COVER, COVER];
-    r.tracks = [{ title: P, position: 1, length: 200000 }, { title: P, position: 2, length: 190000 }];
+    r.tracks = benign ? Array.from({ length: 12 }, (_, i) => ({ title: i % 3 ? "Track " + (i + 1) : P, position: i + 1, length: 190000 + i * 7000 })) : [{ title: P, position: 1, length: 200000 }, { title: P, position: 2, length: 190000 }];
     return r;
   };
 
@@ -41,7 +46,7 @@
     if (url.includes("/rest/v1/")) {
       const one = /object\+json/.test(accept);
       const r = row();
-      return json(one ? r : (/=eq\.|limit=1(&|$)/.test(url) ? [r] : [r, r]));   // lookups by id/username get exactly one row (maybeSingle fails on two)
+      return json(one ? r : (/=eq\.|limit=1(&|$)/.test(url) ? [r] : (benign ? Array.from({ length: 6 }, (_, i) => ({ ...r, id: r.id.slice(0, 8) + "-2222-4333-8444-55555555555" + i, album_id: r.album_id, score: 5 + i })) : [r, r])));   // lookups by id/username get exactly one row (maybeSingle fails on two)
     }
     if (url.includes("/auth/v1/user")) return json({ id: UUID, email: "me@example.test", aud: "authenticated", user_metadata: {}, app_metadata: {} });
     if (url.includes("/auth/v1/")) return json({});

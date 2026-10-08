@@ -65,3 +65,11 @@ level only.
   `javascript:`/`http:`/oversized album covers, an album flood past 300/hour, direct writes to notifications/reports/follows/review_likes, and trigger functions as RPC are all rejected;
   follow_user and normal rating edits still work. Live checks with the public key: every private table answers 401 to anonymous reads and writes, a forged JWT is rejected, no secret-like strings in served files.
 - Not covered by tests: Supabase Auth's own rate limits and settings (dashboard only), and the deployed `api/delete-account` (needs `SUPABASE_SERVICE_ROLE_KEY`; it answers 501 until that is set).
+
+## Responsive audit
+- `tests/responsive-audit.js` loads pages in iframes of any width through `tests/xss.html?benign=1` (realistic, deliberately long fake data, no network) and reports, per page and width: horizontal overflow,
+  controls under 44px, text clipped without an ellipsis, non-square covers, and layout shift. Run it in the browser pane with the Mobile viewport preset (that turns on the touch media queries):
+  `const audit = (0, eval)(await (await fetch("/tests/responsive-audit.js")).text()); await audit.run({ widths: [360, 768], routes: ["/"], signedIn: false })`.
+- Last run (October 2026): 10 pages at 360, 768, 1024, 1100 and 1280px, signed in and out: no horizontal overflow, no clipped text, square covers everywhere, layout shift 0, and every touch target 44px or larger
+  (the one exception is a decorative duplicate link in the feed, now also 44px).
+- Not measured: real-device scrolling feel, iOS keyboard and safe-area behaviour, and anything needing a real network (image decode time). Check those on a phone after deploying.

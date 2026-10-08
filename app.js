@@ -2709,12 +2709,18 @@ async function renderList(id) {
     </header>`;
   const paint = () => { view().innerHTML = `${head()}<div id="entries">${rowsHTML()}</div><div id="editBox"></div>`; wire(); };
 
-  const swap = async (i, j) => {
+  // After the list is redrawn, keep the person's place: focus the same kind of button on the moved row (or the other one if that end is reached) and keep the row on screen
+  const refocus = (index, op) => {
+    const btn = [`[data-op="${op}"][data-i="${index}"]`, `[data-op="${op === "up" ? "down" : "up"}"][data-i="${index}"]`].map((s) => $(s)).find((b) => b && !b.disabled);
+    if (btn) { btn.focus({ preventScroll: true }); btn.scrollIntoView({ block: "nearest" }); }
+  };
+  const swap = async (i, j, op) => {
     const a = items[i], b = items[j];
     const { error } = await sb.from("list_items").upsert([{ list_id: id, album_id: a.album_id, position: b.position }, { list_id: id, album_id: b.album_id, position: a.position }], { onConflict: "list_id,album_id" });
     if (error) return toast(`Couldn't reorder: ${apiError(error)}`, "error");
     items[i] = { ...b, position: a.position }; items[j] = { ...a, position: b.position };
     $("#entries").innerHTML = rowsHTML();
+    refocus(j, op); toast(`${a.title} is now number ${j + 1}`, "info");
   };
   function wire() {
     $("#shareList").onclick = async () => {
@@ -2731,7 +2737,8 @@ async function renderList(id) {
         const { error } = await sb.from("list_items").delete().eq("list_id", id).eq("album_id", items[i].album_id);
         if (error) return toast(`Couldn't remove: ${apiError(error)}`, "error");
         items.splice(i, 1); $("#entries").innerHTML = rowsHTML(); $("#listCount").textContent = plural(items.length, "album"); toast("Removed from list", "info");
-      } else swap(i, op === "up" ? i - 1 : i + 1);
+        const next = $(`[data-op="remove"][data-i="${Math.min(i, items.length - 1)}"]`); if (next) next.focus({ preventScroll: true }); else $("#editList")?.focus();
+      } else swap(i, op === "up" ? i - 1 : i + 1, op);
     });
     $("#editList").onclick = () => {
       $("#editBox").innerHTML = `<form id="editForm" class="form panel" novalidate style="margin-top:var(--s-8)"><h2 class="t-section">Edit list</h2>${listForm(list)}
