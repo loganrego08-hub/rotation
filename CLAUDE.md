@@ -4,7 +4,7 @@ Album rating app: score albums 1-10, star standout tracks, private notes, commun
 Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`).
 
 ## Stack
-- Static front end, no build step: `index.html`, `styles.css`, `app.js` (vanilla JS, hash router).
+- Static front end, no build step: `index.html`, `styles.css`, `app.js` (vanilla JS, History API path router; see the Routing section at the end).
 - `config.js`: Supabase URL + publishable key (public by design; never put a secret key here).
 - `api/chart.js`: Vercel serverless function. Billboard charts as JSON, cached 6h at the edge.
   Billboard 200 from github.com/utdata/rwd-billboard-data; genre charts read from billboard.com.
@@ -16,7 +16,7 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   Cover Art Archive for MusicBrainz covers (slow but reliable).
 
 ## Routes and discovery
-- Hash routes: `#/` Discover, `#/explore`, `#/genre/:slug`, `#/decade/:start`, `#/lists/:tab` (charts, community, mine),
+- Routes (real paths since v11; older text below may still write them as `#/...`): `/` Discover, `#/explore`, `#/genre/:slug`, `#/decade/:start`, `#/lists/:tab` (charts, community, mine),
   `#/search/:term`, `#/me`, `#/album/:mbid`, `#/artist/:mbid`. Main nav is Discover, Explore, Lists, Search; phones get a bottom tab bar.
 - Home layout: hero (headline, search, genre tags) with a crate of the top three Billboard covers and a mono caption (#mosaic, real chart week; the community line shows only past `HERO_STAT_MIN_RATINGS`);
   then the lead feature (loadLead: Billboard #1 with its real movement/weeks/peak, and your own score in vermilion if you've rated it); `Highest rated` is a chart sheet
@@ -69,8 +69,7 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   Rotation-catalog albums by artists you rate highly, the best-known albums by those artists from MusicBrainz (`recsFromDiscographies`, artists interleaved, ranked by popularity), community albums in your genres, and this week's Billboard genre charts.
   Never includes rated albums. Taste is strict (2+ albums per genre, artists averaging 8+) and relaxes (1 album, 7+) only when strict finds nothing (`RL.tasteProfile` options). A row under `REC_FULL` picks is topped up with labeled NOT-personalized
   picks (community favorites, then the Billboard 200) and the note under the heading says so; with zero personalized picks it says nothing matched yet. The row shows quickly from the fast sources, then grows when MusicBrainz answers. Under 3 ratings: general discovery, labeled.
-- Quality rules: every page gets a title + description via `setPageMeta` (hash URLs mean non-script crawlers only see index.html defaults; real SEO
-  would need path routing plus server-rendered pages, a bigger change), a top-level h1 (a MutationObserver adds a hidden one when missing), and an
+- Quality rules: every page gets a title + description via `setPageMeta` (non-script crawlers get the same tags from `api/page.js`, see Routing), a top-level h1 (a MutationObserver adds a hidden one when missing), and an
   error boundary (`route` wraps `routeInner`). Touch targets are at least 44px on touch devices. The album page stacks below 960px.
 - Sources and rights: MusicBrainz metadata is CC0. Cover art is hot-linked from the Cover Art Archive and Apple for identification only, never downloaded,
   re-hosted or put into exported images. Apple's Search API terms limit artwork to promoting Apple store content, so treat Apple art as the riskiest
@@ -107,7 +106,7 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   Reviews are private by default; a writer opts in with "Share this review" and it appears via view `album_reviews`
   (author is a chosen display name, never the email). Save-to-library uses table `library` (own rows only), listed on the profile "Saved" tab.
   Schema v4 added `albums.artist_id/album_type`, `ratings.is_public/display_name`. Missing metadata is omitted, never invented.
-  Links are hash URLs (`#/album/<musicbrainz id>`), so direct opens and refreshes work; the Share button copies/shares `location.href`.
+  Links are path URLs (`/album/<musicbrainz id>`), so direct opens and refreshes work; the Share button copies/shares `location.href`.
 - Decade pages mix community-rated albums with a curated `DECADES` seed list (artwork via Apple, then Cover Art Archive).
 
 ## Design system (styles.css): "liner notes / record store"
@@ -153,6 +152,12 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   (album from `album_catalog` then MusicBrainz; lists only from `public_lists`; artists from MusicBrainz). `api/sitemap.js` = `/sitemap.xml`; `robots.txt` is static. Meta builders live in lib.js (`albumMeta`, `listMeta`, `artistMeta`, `routeMeta`, `injectMeta`).
 - Nobody is walled out: browsing is anonymous. Writes call `requireSignIn(selector, why)`, which stores `{path, selector, why, t}` in localStorage `rotation:intent` (30 min) and opens the dialog;
   after sign-in (or the OAuth/magic-link round trip) `resumeIntent` navigates back and clicks the stored control. `schema.sql` v11 locks anon to SELECT on public tables/views only (apply it in the Supabase SQL editor; not applied automatically).
-- Sign-in methods: Google and Apple (`signInWithOAuth`), email magic link (`signInWithOtp`), email + password. `redirectTo` is `location.origin + "/"`. Failed returns (expired link, cancelled, provider off) are read from the URL by a script in index.html (`window.__authReturn`) and worded by `RL.authReturnMessage`.
-  Supabase dashboard must list the production URL and local dev URL(s) as redirect URLs, and Google/Apple providers must be enabled there.
+- Sign-in methods: email + password, email magic link (`signInWithOtp`), and Google / Apple (`signInWithOAuth`). `redirectTo` is `location.origin + "/"`. Failed returns (expired link, cancelled, provider off) are read from the URL by a script in index.html (`window.__authReturn`) and worded by `RL.authReturnMessage`.
+  Provider buttons are switched by `AUTH_GOOGLE` / `AUTH_APPLE` in config.js (Apple defaults off; with neither on, the provider block and the "or with your email" divider are hidden).
+  CURRENT STATE: both are OFF. Google is fully wired (Supabase Google provider enabled; Google Cloud project `rotation-511016`, OAuth client with redirect URI `https://qiyauhiekzeccduznotv.supabase.co/auth/v1/callback`, owner is a test user) but the Google app is in
+  "Testing", so only listed test users can sign in. Google will not enable Publish until the Branding page has a home page and privacy link on a domain the owner controls; `vercel.app` is rejected ("must be a top private domain").
+  To turn Google on for everyone: buy a custom domain, add it to Vercel, verify it in Google Search Console, add it under Branding > Authorized domains with home page and `/privacy` links, add the domain to Supabase redirect URLs, Publish app, then set `AUTH_GOOGLE: true` and push.
+  To use it before that: add testers under Google Auth Platform > Audience > Test users (max 100) and set `AUTH_GOOGLE: true`. Apple needs a paid Apple Developer account (Services ID, key, team ID; the secret expires every 6 months).
+  Supabase (Authentication > URL Configuration): Site URL `https://rotation-ten.vercel.app`; redirect URLs `https://rotation-ten.vercel.app/**` and `http://localhost:8123/**`.
+- `/privacy` (`renderPrivacy`) states what is stored and who sees it; keep it in step with the data the app actually collects. It is linked from the footer and listed in the sitemap.
 - Home for signed-out visitors shows a landing hero (`hero--landing`: value line, Create account / Browse albums) with Highest rated and Recently reviewed directly below; signed-in users get the normal hero, feed and recommendations.
