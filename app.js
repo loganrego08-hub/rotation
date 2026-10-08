@@ -505,6 +505,19 @@ function wireListen(album) {
   paint();
 }
 
+// Privacy policy (plain language; kept in step with what the app actually stores)
+function renderPrivacy() {
+  setPageMeta("Privacy · Rotation", "What Rotation stores about you, who can see it, and how to download or delete it.");
+  const sec = (id, h, body) => `<section class="section" aria-labelledby="${id}">${sectionHead(h).replace("<h2", `<h2 id="${id}"`)}<div class="prose">${body}</div></section>`;
+  view().innerHTML = `<header class="page-head"><h1 class="t-page">Privacy</h1><p class="t-lead">What Rotation keeps, who can see it, and how to take it back. Last updated October 8, 2026.</p></header>
+    ${sec("pv-store", "What we store", `<p>If you make an account: your email address and a password (the password is hashed by our sign-in provider, Supabase, and we never see it). If you sign in with Google, we receive your email address and name from Google and nothing else.</p>
+      <p>As you use Rotation: your scores, starred tracks, notes, saved albums, listening status (listened, want, favorite), lists, follows, and, if you make one, your profile (username, bio, pinned albums). Your streaming service choice is saved with your account, or on your device if you are signed out.</p>`)}
+    ${sec("pv-see", "Who can see it", `<p>Your email address is never shown to anyone. Scores, notes, lists and your profile are private by default. Other people see them only if you make your profile public, share a review, or make a list public. Everyone sees the community average and the number of ratings, which count your score without saying whose it is.</p>`)}
+    ${sec("pv-third", "Other services", `<p>Rotation runs on Supabase (accounts and database) and Vercel (hosting). Album details come from MusicBrainz, cover art from the Cover Art Archive and Apple, and charts from Billboard. Your browser contacts these to load pages and pictures, so they can see your IP address like any website you visit. Rotation does not run ads or analytics, and does not sell or share your data.</p>`)}
+    ${sec("pv-device", "On your device", `<p>Rotation saves a few small settings in your browser: your sign-in session, light or dark theme, search filter, and streaming service. There are no tracking cookies.</p>`)}
+    ${sec("pv-yours", "Your choices", `<p>You can download everything Rotation holds about you, or delete your account and all of it, from <a href="/me/edit">Edit profile</a> while signed in. Deleting is permanent. To report content or ask anything else, email <a href="mailto:loganrego08@gmail.com">loganrego08@gmail.com</a>.</p>
+      <p>If this policy changes, the date at the top changes with it.</p>`)}`;
+}
 // Settings > Streaming service
 function renderSettings() {
   setPageMeta("Settings · Rotation", "Choose which streaming service Listen buttons open on Rotation.");
@@ -3610,6 +3623,7 @@ function routeInner() {
   if ((m = path.match(/^\/u\/([a-z0-9_]{3,20})$/i))) return renderPublicProfile(m[1]);
   if ((m = path.match(/^\/list\/([0-9a-f-]{36})$/i))) return renderList(m[1]);
   if (path === "/settings") return renderSettings();
+  if (path === "/privacy") return renderPrivacy();
   if (path === "/me/edit") return renderProfileEdit();
   if ((m = path.match(/^\/decade\/(\d{4})$/))) return renderDecade(+m[1]);
   if ((m = path.match(/^\/lists(?:\/([a-z]+))?$/))) return renderLists(m[1]);

@@ -1459,3 +1459,7 @@ main { min-height: 100vh; min-height: 100svh; }
 .auth-or::before, .auth-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 .auth-magic { display: grid; gap: var(--s-1); }
 @media (max-width: 480px) { .landing__cta .btn { flex: 1 1 100%; } }
+/* Plain-text pages (privacy) */
+.prose { max-width: 62ch; display: grid; gap: var(--s-3); line-height: var(--lh-body); }
+.prose p { margin: 0; }
+.prose a { text-decoration: underline; text-underline-offset: 2px; }

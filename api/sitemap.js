@@ -16,7 +16,7 @@ module.exports = async (req, res) => {
     rows("album_catalog?select=album_id&rating_count=gt.0&order=rating_count.desc&limit=2000"),
     rows("public_lists?select=id,updated_at&order=updated_at.desc&limit=1000"),
   ]);
-  const urls = [["/", "daily"], ["/explore", "daily"], ["/lists", "daily"], ["/lists/community", "daily"], ["/search", "monthly"], ["/browse", "weekly"]].map(([p, f]) => ({ loc: origin + p, freq: f }))
+  const urls = [["/", "daily"], ["/explore", "daily"], ["/lists", "daily"], ["/lists/community", "daily"], ["/search", "monthly"], ["/browse", "weekly"], ["/privacy", "monthly"]].map(([p, f]) => ({ loc: origin + p, freq: f }))
     .concat(albums.map((a) => ({ loc: `${origin}/album/${a.album_id}`, freq: "weekly" })))
     .concat(lists.map((l) => ({ loc: `${origin}/list/${l.id}`, freq: "weekly", mod: l.updated_at ? String(l.updated_at).slice(0, 10) : null })));
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `  <url><loc>${esc(u.loc)}</loc>${u.mod ? `<lastmod>${u.mod}</lastmod>` : ""}<changefreq>${u.freq}</changefreq></url>`).join("\n")}\n</urlset>\n`;

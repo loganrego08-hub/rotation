@@ -526,6 +526,7 @@
     [/^\/lists/, { title: `Lists · ${SITE}`, description: "Charts, the community's top-rated albums and public lists from people on Rotation." }],
     [/^\/search/, { title: `Search · ${SITE}`, description: "Find any album or artist, then give it a score." }],
     [/^\/browse/, { title: `Browse with filters · ${SITE}`, description: "Filter albums by genre, decade, average score and number of ratings." }],
+    [/^\/privacy/, { title: `Privacy · ${SITE}`, description: "What Rotation stores about you, who can see it, and how to download or delete it." }],
     [/^\/stats\/sample/, { title: `Sample stats · ${SITE}`, description: "A made-up example of the listening stats page, clearly labeled as sample data." }],
     [/^\/(me|settings|notifications|feed|stats|year)/, { title: `${SITE}`, description: SITE_DESC, noindex: true }],
   ];
