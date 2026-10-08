@@ -741,3 +741,46 @@ do $$ declare f record; begin
     execute format('alter function %s set search_path = public', f.sig);
   end loop;
 end $$;
+
+-- v12: security audit hardening (run in the Supabase SQL editor; safe to re-run)
+-- 1. albums are writable by any signed-in user (the app adds an album the first time it is rated), so bound what can be stored:
+--    https-only covers (no javascript:/data: URLs), short text fields, small arrays, and a per-user cap on how many albums one account can add per hour.
+alter table public.albums drop constraint if exists albums_field_limits;
+alter table public.albums add constraint albums_field_limits check (
+  (cover_url is null or (cover_url ~ '^https://' and char_length(cover_url) <= 500))
+  and char_length(coalesce(release_date, '')) <= 10
+  and char_length(coalesce(album_type, '')) <= 40
+  and char_length(coalesce(artist_id, '')) <= 36
+  and pg_column_size(genres) <= 2000
+) not valid;
+alter table public.albums validate constraint albums_field_limits;
+
+create table if not exists private.album_inserts (user_id uuid not null, at timestamptz not null default now());
+create index if not exists album_inserts_user_at on private.album_inserts (user_id, at desc);
+alter table private.album_inserts enable row level security;
+revoke all on private.album_inserts from anon, authenticated;
+create or replace function public.guard_albums() returns trigger language plpgsql security definer set search_path = public, private as $$
+begin
+  if auth.uid() is not null then
+    if (select count(*) from private.album_inserts where user_id = auth.uid() and at > now() - interval '1 hour') >= 300 then
+      raise exception 'Too many albums added in the last hour. Try again later.';
+    end if;
+    insert into private.album_inserts (user_id) values (auth.uid());
+  end if;
+  return new;
+end $$;
+revoke execute on function public.guard_albums() from public, anon, authenticated;
+drop trigger if exists guard_albums on public.albums;
+create trigger guard_albums before insert on public.albums for each row execute function public.guard_albums();
+
+-- 2. ratings: standout_tracks is capped at 200 entries, but each entry was unbounded, so one row could be megabytes
+alter table public.ratings drop constraint if exists ratings_standouts_bytes;
+alter table public.ratings add constraint ratings_standouts_bytes check (pg_column_size(standout_tracks) <= 20000) not valid;
+alter table public.ratings validate constraint ratings_standouts_bytes;
+
+-- 3. Least privilege: these tables are only written through SECURITY DEFINER functions (follow_user, toggle_review_like, report_content, mark_notifications_read),
+--    so signed-in users need no direct write grants (RLS already denied them; this removes the grant as a second lock)
+revoke all on public.notifications from authenticated;
+revoke all on public.reports from authenticated;
+revoke insert, update, delete on public.review_likes from authenticated;
+revoke insert, update on public.follows from authenticated;

@@ -122,6 +122,6 @@ module.exports = async (req, res) => {
     res.setHeader("Cache-Control", "s-maxage=21600, stale-while-revalidate=86400");
     res.status(200).json({ slug, ...chart });
   } catch (e) {
-    res.status(502).json({ slug, error: e.message });
+    res.status(502).json({ slug, error: "Chart unavailable right now" });
   }
 };

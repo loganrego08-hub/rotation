@@ -11,10 +11,13 @@ const MB = "https://musicbrainz.org/ws/2";
 const UA = `Rotation/1.0 ( ${process.env.MB_CONTACT || "https://rotation-ten.vercel.app"} )`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-let chain = Promise.resolve(), last = 0;
+let chain = Promise.resolve(), last = 0, pending = 0;
+const MAX_PENDING = 8;   // each MusicBrainz call is queued 1.1 s apart; beyond this the caller is told to retry instead of the queue growing without limit
 const inflight = new Map();
 function mb(url) {
   if (inflight.has(url)) return inflight.get(url);
+  if (pending >= MAX_PENDING) { const e = new Error("busy"); e.busy = true; throw e; }
+  pending++;
   const run = chain.then(async () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const wait = last + 1100 - Date.now();
@@ -29,7 +32,7 @@ function mb(url) {
   });
   chain = run.catch(() => {});
   inflight.set(url, run);
-  run.finally(() => inflight.delete(url)).catch(() => {});
+  run.finally(() => { inflight.delete(url); pending--; }).catch(() => {});
   return run;
 }
 const fetchGroups = async (query, limit, offset) => {
@@ -77,6 +80,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({ groups, fuzzy, swept });
   } catch (e) {
     res.setHeader("Cache-Control", "no-store");
+    if (e && e.busy) { res.setHeader("Retry-After", "5"); return res.status(429).json({ error: "Search is busy. Try again in a few seconds." }); }
     return res.status(502).json({ error: "Search is unavailable right now" });
   }
 };
