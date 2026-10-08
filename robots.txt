@@ -1,0 +1,9 @@
+﻿User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /me
+Disallow: /settings
+Disallow: /notifications
+Disallow: /feed
+
+Sitemap: https://rotation-ten.vercel.app/sitemap.xml

@@ -14,9 +14,17 @@
 <link rel="canonical" href="https://rotation-ten.vercel.app/">
 <link rel="preconnect" href="https://coverartarchive.org" crossorigin>
 <link rel="preconnect" href="https://musicbrainz.org" crossorigin>
-<link rel="preload" href="fonts/schibsted-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/fraunces-latin-full-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css">
+<link rel="preload" href="/fonts/schibsted-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/fraunces-latin-full-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+<script>
+/* Old links looked like /#/album/<id>. Rewrite them to real paths before anything renders (the part after # never reaches a server, so this has to happen here).
+   Sign-in links that come back with #access_token=... or #error=... are not routes and are left alone. */
+(function () {
+  var h = location.hash;
+  if (h.indexOf("#/") === 0) history.replaceState(null, "", h.slice(1));
+})();
+</script>
 <script>
 /* Theme first, before anything paints: the saved choice, else the system setting. The footer toggle (app.js) changes it. */
 (function () {
@@ -32,12 +40,12 @@
 
 <header class="nav" id="nav">
   <div class="nav__inner">
-    <a href="#/" class="wordmark" aria-label="Rotation home">Rotation</a>
+    <a href="/" class="wordmark" aria-label="Rotation home">Rotation</a>
     <nav class="nav__links" aria-label="Main">
-      <a href="#/" data-nav="discover">Home</a>
-      <a href="#/explore" data-nav="explore">Explore</a>
-      <a href="#/lists" data-nav="lists">Lists</a>
-      <a href="#/search" data-nav="search">
+      <a href="/" data-nav="discover">Home</a>
+      <a href="/explore" data-nav="explore">Explore</a>
+      <a href="/lists" data-nav="lists">Lists</a>
+      <a href="/search" data-nav="search">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search
       </a>
     </nav>
@@ -89,8 +97,8 @@
 <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js"></script>
-<script src="lib.js"></script>
-<script src="app.js"></script>
+<script src="/config.js"></script>
+<script src="/lib.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>

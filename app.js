@@ -49,6 +49,20 @@ function fmtDate(d, style = "long") {
 }
 
 /* ==========================================================================
+   Navigation helpers (path routing)
+   The address bar holds real paths (/album/<id>, /search/<term>?type=album). here() is the current path plus query; go() moves to a new one
+   like a link would (pushState, then route). Old #/path links are rewritten to paths by a small script in index.html before this file runs.
+   ========================================================================== */
+const here = () => (location.pathname.replace(/(.)\/+$/, "$1") || "/") + location.search;
+function go(path, { replace = false } = {}) {
+  const url = new URL(path, location.origin);
+  if (url.origin !== location.origin) { location.href = path; return; }
+  const next = url.pathname + url.search + url.hash;
+  if (next === location.pathname + location.search + location.hash) { route(); return; }
+  history[replace ? "replaceState" : "pushState"](null, "", next);
+  route();
+}
+/* ==========================================================================
    Data sources
    ========================================================================== */
 const cache = new Map();
@@ -90,7 +104,7 @@ function matchGenre(name) {
   const n = String(name || "").toLowerCase();
   return GENRES.find((g) => g.tags.includes(n)) || GENRES.find((g) => g.tags.some((t) => n.includes(t)));
 }
-const albumHref = (it) => it.id ? `#/album/${it.id}` : `#/find/${encodeURIComponent(it.artist)}/${encodeURIComponent(it.title)}`;
+const albumHref = (it) => it.id ? `/album/${it.id}` : `/find/${encodeURIComponent(it.artist)}/${encodeURIComponent(it.title)}`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let mbLast = 0;
@@ -258,14 +272,14 @@ function albumCard(it, { rank, score, mine = false, count, scoreLabel, meta, met
 }
 
 function artistCard(a) {
-  return `<a class="artist-card" href="#/artist/${a.id}">
+  return `<a class="artist-card" href="/artist/${a.id}">
     <div class="artist-card__img" aria-hidden="true">${esc((a.name || "?").trim().charAt(0).toUpperCase())}</div>
     <div><div class="artist-card__name">${esc(a.name)}</div>${a.sub ? `<div class="t-meta">${esc(a.sub)}</div>` : ""}</div></a>`;
 }
 
 function listCard(r, rank) {
   const a = r.album;
-  return `<a class="list-card" href="#/album/${a.id}">
+  return `<a class="list-card" href="/album/${a.id}">
     <span class="list-card__rank">${rank}</span>
     ${artwork(smallArt(a.cover_url), `${a.title} by ${a.artist}`, "thumb")}
     <span class="list-card__text"><span class="list-card__title">${esc(a.title)}</span><span class="list-card__sub">${esc(a.artist)}${r.thoughts ? " · has notes" : ""}</span></span>
@@ -343,7 +357,7 @@ function tabs(items, active, name) {
 }
 
 function genreCard(g) {
-  return `<a class="genre-card" href="#/genre/${g.slug}" data-genre="${g.slug}">
+  return `<a class="genre-card" href="/genre/${g.slug}" data-genre="${g.slug}">
     <div class="genre-card__covers">${Array.from({ length: 3 }, () => `<div class="sk art"></div>`).join("")}</div>
     <div><div class="genre-card__name">${esc(g.name)}</div><div class="genre-card__top">Loading this week's chart</div></div></a>`;
 }
@@ -371,17 +385,17 @@ function renderAccount() {
   const el = $("#account");
   if (!sb) { el.innerHTML = ""; return; }
   if (!user) { el.innerHTML = button("Sign in", { variant: "primary", size: "sm", id: "signIn" }); $("#signIn").onclick = openAuth; return; }
-  el.innerHTML = `<a class="icon-btn bell" id="bell" href="#/notifications" aria-label="Notifications">${icon("bell")}<span class="bell__badge" id="bellBadge" hidden></span></a>
+  el.innerHTML = `<a class="icon-btn bell" id="bell" href="/notifications" aria-label="Notifications">${icon("bell")}<span class="bell__badge" id="bellBadge" hidden></span></a>
     <button type="button" class="avatar" id="acctBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">${profile?.avatar_cover ? `<img src="${esc(smallArt(profile.avatar_cover))}" alt="" onerror="this.remove()">` : esc(displayName().charAt(0).toUpperCase())}</button>
     <div class="menu menu--account" id="acctMenu" role="menu" hidden>
       <div class="menu__label">${esc(user.email)}</div>
-      <a class="menu__item" role="menuitem" href="#/me">${icon("disc")}Your shelf</a>
-      <a class="menu__item" role="menuitem" href="#/stats">${icon("star")}Your stats</a>
-      <a class="menu__item" role="menuitem" href="${profile ? profileHref(profile.username) : "#/me/edit"}">${icon("user")}${profile ? "Your profile" : "Create profile"}</a>
-      <a class="menu__item" role="menuitem" href="#/lists/yours">${icon("list")}Your lists</a>
-      <a class="menu__item" role="menuitem" href="#/feed">${icon("spark")}Following</a>
-      <a class="menu__item" role="menuitem" href="#/notifications">${icon("bell")}Notifications</a>
-      <a class="menu__item" role="menuitem" href="#/settings">${icon("note")}Settings</a>
+      <a class="menu__item" role="menuitem" href="/me">${icon("disc")}Your shelf</a>
+      <a class="menu__item" role="menuitem" href="/stats">${icon("star")}Your stats</a>
+      <a class="menu__item" role="menuitem" href="${profile ? profileHref(profile.username) : "/me/edit"}">${icon("user")}${profile ? "Your profile" : "Create profile"}</a>
+      <a class="menu__item" role="menuitem" href="/lists/yours">${icon("list")}Your lists</a>
+      <a class="menu__item" role="menuitem" href="/feed">${icon("spark")}Following</a>
+      <a class="menu__item" role="menuitem" href="/notifications">${icon("bell")}Notifications</a>
+      <a class="menu__item" role="menuitem" href="/settings">${icon("note")}Settings</a>
       <button type="button" class="menu__item" role="menuitem" id="signOut">${icon("logout")}Sign out</button>
     </div>`;
   const btn = $("#acctBtn"), menu = $("#acctMenu");
@@ -459,11 +473,11 @@ function wireListen(album) {
     const svc = getStream(), mine = ++seq, btn = $("#listenBtn"), note = $("#listenNote");
     if (!btn) return;
     $("span", btn).textContent = svc ? `Listen on ${streamLabel(svc)}` : "Listen";
-    btn.href = svc ? RL.streamingSearchUrl(svc, albumQuery) : "#/settings";
+    btn.href = svc ? RL.streamingSearchUrl(svc, albumQuery) : "/settings";
     if (note) { note.hidden = !svc; const nm = $("[data-svc-name]", note); if (nm) nm.textContent = streamLabel(svc); }
     $$(".track__listen").forEach((a) => {
       const label = svc ? `Listen to ${a.dataset.track} on ${streamLabel(svc)}` : `Listen to ${a.dataset.track}`;
-      a.href = svc ? RL.streamingSearchUrl(svc, RL.listenQuery(album.artist, album.title, a.dataset.track), "track") : "#/settings";
+      a.href = svc ? RL.streamingSearchUrl(svc, RL.listenQuery(album.artist, album.title, a.dataset.track), "track") : "/settings";
       a.setAttribute("aria-label", label); a.title = label;
     });
     if (!svc) return;
@@ -504,7 +518,7 @@ function renderSettings() {
       </fieldset>
       <p class="field__hint" id="svcStatus" role="status" aria-live="polite"></p>
     </section>
-    ${user ? `<section class="section">${sectionHead("Account")}<div class="chips">${button(profile ? "Edit profile" : "Create profile", { href: "#/me/edit", iconName: "user" })}</div></section>` : ""}`;
+    ${user ? `<section class="section">${sectionHead("Account")}<div class="chips">${button(profile ? "Edit profile" : "Create profile", { href: "/me/edit", iconName: "user" })}</div></section>` : ""}`;
   $$("input[name=svc]").forEach((r) => r.addEventListener("change", async () => {
     const id = r.value || null, status = $("#svcStatus");
     status.textContent = "Saving…";
@@ -542,7 +556,7 @@ $("#authForgot").onclick = async () => {
   const email = $("#authEmail").value.trim();
   if (!email) { showAuthMessage("Enter your email above, then choose Forgot password."); $("#authEmail").focus(); return; }
   const btn = $("#authForgot"); btn.setAttribute("aria-busy", "true");
-  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/" });
   btn.removeAttribute("aria-busy");
   // The same message whether or not an account exists, so this can't be used to discover who has one
   if (error && !/rate|limit|seconds/i.test(error.message)) return showAuthMessage(error.message);
@@ -588,10 +602,10 @@ const searchHref = (term, f = {}) => {
   if (f.type) q.set("type", f.type);
   ["from", "to", "genre", "artist"].forEach((k) => { if (f[k]) q.set(k, f[k]); });
   const qs = q.toString();
-  return `#/search${term ? "/" + encodeURIComponent(term) : qs ? "/" : ""}${qs ? "?" + qs : ""}`;
+  return `/search${term ? "/" + encodeURIComponent(term) : qs ? "/" : ""}${qs ? "?" + qs : ""}`;
 };
 function parseSearchHash(h) {
-  const [path, qs = ""] = h.replace(/^#\/search\/?/, "").split("?");
+  const [path, qs = ""] = h.replace(/^\/search\/?/, "").split("?");
   const q = new URLSearchParams(qs);
   const f = {};
   ["type", "from", "to", "genre", "artist"].forEach((k) => { if (q.get(k)) f[k] = q.get(k); });
@@ -705,10 +719,10 @@ function suggestHTML(term, res, f) {
   const albums = res.ranked.slice(0, Math.max(3, 8 - artists.length));
   let n = 0; const oid = () => `${"sopt"}-${++n}`;
   return `${artists.length ? `<div class="menu__group" role="group" aria-label="Artists">${artists.map((a) => `
-      <a class="menu__item" role="option" id="${oid()}" aria-selected="false" href="#/artist/${a.id}"><span class="avatar" aria-hidden="true">${esc(a.name.charAt(0).toUpperCase())}</span>
+      <a class="menu__item" role="option" id="${oid()}" aria-selected="false" href="/artist/${a.id}"><span class="avatar" aria-hidden="true">${esc(a.name.charAt(0).toUpperCase())}</span>
       <span class="menu__text"><strong>${esc(a.name)}</strong><span>Artist</span></span></a>`).join("")}</div>` : ""}
     ${albums.length ? `<div class="menu__group" role="group" aria-label="Albums">${albums.map((c) => `
-      <a class="menu__item" role="option" id="${oid()}" aria-selected="false" href="#/album/${c.id}">${artwork(candArt(c), c.title, "thumb")}
+      <a class="menu__item" role="option" id="${oid()}" aria-selected="false" href="/album/${c.id}">${artwork(candArt(c), c.title, "thumb")}
       <span class="menu__text"><strong>${esc(c.title)}</strong><span>${esc([c.artist, year(c.date), KIND_LABEL[c.kind]].filter(Boolean).join(" · "))}</span></span></a>`).join("")}</div>` : ""}
     <div class="menu__group"><a class="menu__item" role="option" id="${oid()}" aria-selected="false" href="${searchHref(term, f)}">${icon("search")}<span class="menu__text"><strong>See all results for “${esc(term)}”</strong></span></a></div>`;
 }
@@ -740,11 +754,11 @@ function openSearchOverlay() {
   o.id = "searchOverlay"; o.className = "overlay";
   o.innerHTML = `<div class="overlay__box" role="dialog" aria-modal="true" aria-label="Search">${searchForm({ mode: "menu", cls: "search--hero" })}<p class="t-meta">Esc to close</p></div>`;
   document.body.appendChild(o);
-  const close = () => { o.remove(); window.removeEventListener("hashchange", close); document.removeEventListener("keydown", onKey, true); };
+  const close = () => { o.remove(); window.removeEventListener("rotation:route", close); document.removeEventListener("keydown", onKey, true); };
   const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
   o.addEventListener("mousedown", (e) => { if (e.target === o) close(); });
   o.addEventListener("click", (e) => { if (e.target.closest(".menu--search a")) close(); });
-  window.addEventListener("hashchange", close);
+  window.addEventListener("rotation:route", close);
   document.addEventListener("keydown", onKey, true);
   $("[data-search]", o).focus();
 }
@@ -804,9 +818,9 @@ document.addEventListener("submit", (e) => {
   setResults(input, false);
   if (input.dataset.search === "page") {
     const f = readSearchFilters(), h = searchHref(v, f);
-    return location.hash === h ? pageSearch(v, f) : (location.hash = h);   // a new term is a new history entry, so Back works
+    return here() === h ? pageSearch(v, f) : go(h);   // a new term is a new history entry, so Back works
   }
-  location.hash = searchHref(v, { type: storedType() });
+  go(searchHref(v, { type: storedType() }));
 });
 document.addEventListener("click", (e) => {
   $$(".menu--search").forEach((m) => { if (!m.hidden && !m.closest(".search").contains(e.target)) setResults($("[data-search]", m.closest(".search")), false); });
@@ -899,7 +913,7 @@ async function myRatings(fields = "score, standout_tracks, thoughts, updated_at,
 
 /* ---------- Missing covers ----------
    Chart albums that Apple couldn't match with confidence arrive without art (better empty than the wrong album's cover).
-   Any card that links to a name lookup (#/find/artist/title) and has no picture gets one here from MusicBrainz and the Cover Art Archive:
+   Any card that links to a name lookup (/find/artist/title) and has no picture gets one here from MusicBrainz and the Cover Art Archive:
    the same source the album page uses. Looked up one at a time (MusicBrainz allows about one request a second), remembered for the session. */
 async function resolveCover(artist, title) {
   const key = "cov2:" + norm(artist) + "|" + norm(title);
@@ -920,10 +934,10 @@ async function healCovers() {
   if (healing) return;
   healing = true;
   try {
-    const targets = $$('#view a[href^="#/find/"] .art:not(:has(img)):not([data-healed])').slice(0, 12);
+    const targets = $$('#view a[href^="/find/"] .art:not(:has(img)):not([data-healed])').slice(0, 12);
     for (const el of targets) {
       el.dataset.healed = "1";
-      const [, artist, title] = decodeURIComponent((el.closest("a").getAttribute("href") || "").replace(/^#\/find\//, "")).match(/^([^/]*)\/(.*)$/) || [];
+      const [, artist, title] = decodeURIComponent((el.closest("a").getAttribute("href") || "").replace(/^\/find\//, "")).match(/^([^/]*)\/(.*)$/) || [];
       if (!artist || !title) continue;
       const url = await resolveCover(artist, title);
       if (url && el.isConnected) el.outerHTML = artwork(url, `${title} by ${artist}`, el.className.replace(/\bart\b/, "").replace(/\bis-healed\b/, "").trim());
@@ -1031,14 +1045,14 @@ async function loadNewReleases() {
     sub: "Debuted on Billboard's charts in the last four weeks", badge: "Billboard chart",
     cards: fresh.slice(0, 18).map((it) => albumCard(it, it.weeks <= 1 ? { meta: "Debuted this week", metaKind: "new" } : { meta: `Week ${it.weeks} on the charts` })),
     empty: { title: "No fresh debuts right now", body: "New albums land on the charts every Tuesday. Check back then.",
-      actions: button("Browse the charts", { href: "#/lists/charts" }) },
+      actions: button("Browse the charts", { href: "/lists/charts" }) },
   };
 }
 
 async function loadHighest() {
   const top = (await communityStats()).filter((s) => s.rating_count >= MIN_RATINGS).slice(0, 24);
   if (top.length) return { sub: RANKING_NOTE, badge: "Community ranking", cards: top.map((s, i) => statCard(s, { rank: i + 1 })),
-    sheet: { href: `#/album/${top[0].album_id}`, art: top[0].cover_url, title: top[0].title, artist: top[0].artist } };
+    sheet: { href: `/album/${top[0].album_id}`, art: top[0].cover_url, title: top[0].title, artist: top[0].artist } };
   const c = await billboard("billboard-200");
   return { badge: "Billboard chart", sub: `Albums need ${MIN_RATINGS}+ ratings to rank here. Until then, the most popular albums right now.`,
     cards: c.items.slice(0, 14).map((it) => albumCard(it, { rank: it.rank })),
@@ -1081,7 +1095,7 @@ async function loadGems() {
   for (let i = 0; i < 4; i++) lists.forEach((l) => { const it = l[i]; if (it && !seen.has(keyOf(it))) { seen.add(keyOf(it)); out.push(it); } });
   return { badge: "Billboard genre charts", sub: "Charting with their own audiences, but missing from the Billboard 200. Chart-based, not community ratings.",
     cards: out.slice(0, 18).map((it) => albumCard(it)),
-    empty: { title: "Nothing off the main chart this week", body: "Try browsing by genre instead.", actions: button("Explore genres", { href: "#/explore" }) } };
+    empty: { title: "Nothing off the main chart this week", body: "Try browsing by genre instead.", actions: button("Explore genres", { href: "/explore" }) } };
 }
 
 async function loadRecent() {
@@ -1093,7 +1107,7 @@ async function loadRecent() {
     cards: list.slice(0, 18).map((r) => albumCard({ id: r.album_id, title: r.title, artist: r.artist, art: r.cover_url },
       { score: r.score, scoreLabel: "A community rating", meta: `Rated ${ago(r.rated_at)}` })),
     empty: { iconName: "star", title: "No ratings yet", body: "When people start scoring albums, the latest ones show up here.",
-      actions: button("Find an album to rate", { variant: "primary", href: "#/search", iconName: "search" }) },
+      actions: button("Find an album to rate", { variant: "primary", href: "/search", iconName: "search" }) },
   };
 }
 
@@ -1132,7 +1146,7 @@ async function loadLead() {
     if (user) { try { mine = (await myRatings("score, album:albums(id,title,artist)")).find((r) => keyOf(r.album) === keyOf(it))?.score ?? null; } catch {} }
     const href = albumHref(it);
     const facts = [it.move?.text, it.weeks != null ? `${plural(it.weeks, "week")} on the chart` : null, it.peak != null ? `Peak No. ${it.peak}` : null].filter(Boolean);
-    el.innerHTML = `${sectionHead("Number one this week", { link: "#/lists/charts", linkLabel: "Charts" }).replace("<h2", '<h2 id="lead-h"').replace("</h2>", '</h2><span class="badge">Billboard chart</span>')}
+    el.innerHTML = `${sectionHead("Number one this week", { link: "/lists/charts", linkLabel: "Charts" }).replace("<h2", '<h2 id="lead-h"').replace("</h2>", '</h2><span class="badge">Billboard chart</span>')}
       <div class="lead__inner">
         <a class="sleeve lead__sleeve" href="${href}" aria-label="${esc(it.title)} by ${esc(it.artist)}"><div class="vinyl" aria-hidden="true">${vinylSvg("1")}</div><div class="album__art">${artwork(it.art, `${it.title} by ${it.artist}`)}</div></a>
         <div class="lead__text">
@@ -1141,7 +1155,7 @@ async function loadLead() {
           <p class="lead__artist">${esc(it.artist)}</p>
           ${facts.length ? `<p class="lead__facts">${facts.map((f, i) => `${i ? '<span class="dot" aria-hidden="true"></span>' : ""}<span>${esc(f)}</span>`).join("")}</p>` : ""}
           ${mine != null ? `<p class="lead__yours"><span class="t-label">Your score</span>${scoreChip(mine, { mine: true })}</p>` : ""}
-          <div class="lead__actions">${button(mine != null ? "Open album" : "Rate this album", { variant: "primary", href, iconName: "star" })}${button("All charts", { href: "#/lists/charts" })}</div>
+          <div class="lead__actions">${button(mine != null ? "Open album" : "Rate this album", { variant: "primary", href, iconName: "star" })}${button("All charts", { href: "/lists/charts" })}</div>
         </div></div>`;
     el.hidden = false;
   } catch { el.remove(); }
@@ -1156,7 +1170,7 @@ function sheetHTML(r) {
 
 // Genres and decades on the home page are typographic indexes, like a table of contents
 const genreIndex = () => `<ol class="index index--genres">${GENRES.slice(0, 6).map((g, i) =>
-  `<li><a href="#/genre/${g.slug}"><span class="index__n t-meta">${String(i + 1).padStart(2, "0")}</span><span class="index__name">${esc(g.name)}</span><span class="index__cap t-meta" data-genre="${g.slug}"></span></a></li>`).join("")}</ol>`;
+  `<li><a href="/genre/${g.slug}"><span class="index__n t-meta">${String(i + 1).padStart(2, "0")}</span><span class="index__name">${esc(g.name)}</span><span class="index__cap t-meta" data-genre="${g.slug}"></span></a></li>`).join("")}</ol>`;
 function fillGenreIndex(root) {
   GENRES.slice(0, 6).forEach((g) => genreChart(g).then((c) => {
     const top = c.items[0], cap = $(`[data-genre="${g.slug}"]`, root);
@@ -1164,9 +1178,9 @@ function fillGenreIndex(root) {
   }).catch(() => {}));
 }
 const decadeIndex = () => `<ol class="index index--decades">${DECADES.map((d) =>
-  `<li><a href="#/decade/${d.start}" aria-label="${d.start}s"><span class="index__big" aria-hidden="true">${String(d.start).slice(2)}s</span><span class="index__cap t-meta">${d.start}–${d.start + 9}</span></a></li>`).join("")}</ol>`;
+  `<li><a href="/decade/${d.start}" aria-label="${d.start}s"><span class="index__big" aria-hidden="true">${String(d.start).slice(2)}s</span><span class="index__cap t-meta">${d.start}–${d.start + 9}</span></a></li>`).join("")}</ol>`;
 const decadeGrid = () => `<div class="decades">${DECADES.map((d) =>
-  `<a class="decade-card" href="#/decade/${d.start}"><span class="decade-card__num">${d.start}s</span><span class="decade-card__sub">${d.start}–${d.start + 9}</span></a>`).join("")}</div>`;
+  `<a class="decade-card" href="/decade/${d.start}"><span class="decade-card__num">${d.start}s</span><span class="decade-card__sub">${d.start}–${d.start + 9}</span></a>`).join("")}</div>`;
 
 async function renderHome() {
   document.title = "Rotation";
@@ -1177,34 +1191,34 @@ async function renderHome() {
         <h1 class="t-hero">What’s in your rotation?</h1>
         <p class="t-lead">Score albums out of 10. Star the tracks that hit. See where everyone else lands.</p>
         ${searchForm({ mode: "menu", cls: "search--hero" })}
-        <nav class="chips" aria-label="Browse genres">${GENRES.slice(0, 5).map((g) => `<a class="chip" href="#/genre/${g.slug}">${esc(g.name)}</a>`).join("")}<a class="chip" href="#/explore">More</a><a class="chip" href="#/surprise">Surprise me</a></nav>
+        <nav class="chips" aria-label="Browse genres">${GENRES.slice(0, 5).map((g) => `<a class="chip" href="/genre/${g.slug}">${esc(g.name)}</a>`).join("")}<a class="chip" href="/explore">More</a><a class="chip" href="/surprise">Surprise me</a></nav>
       </div>
       <div class="hero__side"><div class="hero__mosaic" id="mosaic" aria-label="Top albums on this week's Billboard 200"></div><p class="hero__caption t-meta" id="mosaicCap"></p></div>
     </section>
     <section class="section lead" id="leadFeature" hidden aria-labelledby="lead-h"></section>
     <section class="section" id="feedShelf" hidden>
-      ${sectionHead("From people you follow", { sub: "Latest activity from public profiles you follow", link: "#/feed", linkLabel: "See all" })}
+      ${sectionHead("From people you follow", { sub: "Latest activity from public profiles you follow", link: "/feed", linkLabel: "See all" })}
       <div class="feed"></div>
     </section>
     <section class="section" id="recShelf" hidden>
       ${sectionHead("Recommended for you", { sub: "", id: "recWhy" })}
       <div class="row" id="recs">${skCards(6)}</div>
     </section>
-    ${homeSection("sec-trending", "Trending this week", "", { link: "#/lists/charts", linkLabel: "Charts" })}
-    ${homeSection("sec-new", "New releases", "", { link: "#/lists/charts", linkLabel: "Charts" })}
-    ${homeSection("sec-top", "Highest rated", "", { link: "#/lists/community", linkLabel: "Full list" })}
+    ${homeSection("sec-trending", "Trending this week", "", { link: "/lists/charts", linkLabel: "Charts" })}
+    ${homeSection("sec-new", "New releases", "", { link: "/lists/charts", linkLabel: "Charts" })}
+    ${homeSection("sec-top", "Highest rated", "", { link: "/lists/community", linkLabel: "Full list" })}
     ${homeSection("sec-radar", "Hidden gems", "", { link: browseHref({ min: "8", count: String(MIN_RATINGS), few: "1", sort: "rated" }), linkLabel: "Browse all" })}
     ${homeSection("sec-divisive", "Divisive albums", "", { link: browseHref({ divisive: "1", sort: "divisive" }), linkLabel: "Browse all" })}
     <section class="section" id="sec-genres" aria-labelledby="sec-genres-h">
-      ${sectionHead("Explore by genre", { sub: "Billboard's weekly album charts", link: "#/explore", linkLabel: "Explore all" }).replace("<h2", '<h2 id="sec-genres-h"')}
+      ${sectionHead("Explore by genre", { sub: "Billboard's weekly album charts", link: "/explore", linkLabel: "Explore all" }).replace("<h2", '<h2 id="sec-genres-h"')}
       ${genreIndex()}
     </section>
     <section class="section" aria-labelledby="sec-decades-h">
-      ${sectionHead("Explore by decade", { sub: "Editorial landmarks and community picks from every era", link: "#/explore", linkLabel: "Explore all" }).replace("<h2", '<h2 id="sec-decades-h"').replace("</h2>", '</h2><span class="badge">Editorial picks</span>')}
+      ${sectionHead("Explore by decade", { sub: "Editorial landmarks and community picks from every era", link: "/explore", linkLabel: "Explore all" }).replace("<h2", '<h2 id="sec-decades-h"').replace("</h2>", '</h2><span class="badge">Editorial picks</span>')}
       ${decadeIndex()}
     </section>
-    ${homeSection("sec-gems", "Beyond the Billboard 200", "", { link: "#/explore", linkLabel: "Explore" })}
-    ${homeSection("sec-recent", "Recently reviewed", "", { link: "#/search", linkLabel: "Find albums" })}`;
+    ${homeSection("sec-gems", "Beyond the Billboard 200", "", { link: "/explore", linkLabel: "Explore" })}
+    ${homeSection("sec-recent", "Recently reviewed", "", { link: "/search", linkLabel: "Find albums" })}`;
   loadHeroMosaic();
   loadLead();
   loadHomeFeed();
@@ -1223,7 +1237,7 @@ async function renderHome() {
 function renderExplore() {
   document.title = "Explore · Rotation";
   view().innerHTML = `<header class="page-head"><h1 class="t-page">Explore</h1><p class="t-lead">Browse by genre, or travel through the decades.</p>
-      <div class="chips" style="margin-top:var(--s-2)">${button("Surprise me", { variant: "primary", size: "sm", href: "#/surprise", iconName: "spark" })}${button("Browse with filters", { size: "sm", href: "#/browse", iconName: "list" })}</div></header>
+      <div class="chips" style="margin-top:var(--s-2)">${button("Surprise me", { variant: "primary", size: "sm", href: "/surprise", iconName: "spark" })}${button("Browse with filters", { size: "sm", href: "/browse", iconName: "list" })}</div></header>
     <section class="section">${sectionHead("By genre", { sub: "Billboard's weekly album charts, updated every Tuesday" })}
       <div class="genres">${GENRES.map(genreCard).join("")}</div></section>
     <section class="section">${sectionHead("By decade", { sub: "Landmark albums and what's rated on Rotation" })}${decadeGrid()}</section>`;
@@ -1274,7 +1288,7 @@ async function renderDecade(start) {
   view().innerHTML = `
     <header class="page-head"><p class="t-meta">${start}–${start + 9}</p><h1 class="t-title">${start}s</h1></header>
     <nav class="chips" aria-label="Other decades" style="margin-bottom:var(--s-8)">${DECADES.map((x) =>
-      `<a class="chip" href="#/decade/${x.start}" ${x === d ? 'aria-current="page"' : ""}>${x.start}s</a>`).join("")}</nav>
+      `<a class="chip" href="/decade/${x.start}" ${x === d ? 'aria-current="page"' : ""}>${x.start}s</a>`).join("")}</nav>
     <section class="section" id="dec-rated">${sectionHead("Rated on Rotation", { sub: `Calculated from community scores for albums released in the ${short}s`, id: "dec-rated-sub" }).replace("</h2>", '</h2><span class="badge">Community ranking</span>')}
       <div class="section__body"><div class="row">${skCards(6)}</div></div></section>
     <section class="section">${sectionHead("Landmark albums", { sub: "An editor's starting point for the decade. Hand-picked, not a ranking, and not based on Rotation ratings." }).replace("</h2>", '</h2><span class="badge">Editorial picks</span>')}
@@ -1285,7 +1299,7 @@ async function renderDecade(start) {
   }));
   const body = $("#dec-rated .section__body");
   const emptyRated = () => emptyState({ iconName: "star", compact: true, title: `No ${start}s albums rated yet`,
-    body: "Rate one from this decade and it shows up here for everyone.", actions: button("Search albums", { href: "#/search", iconName: "search" }) });
+    body: "Rate one from this decade and it shows up here for everyone.", actions: button("Search albums", { href: "/search", iconName: "search" }) });
   if (!sb) { body.innerHTML = emptyRated(); return; }
   const { data, error } = await sb.from("album_stats").select("*").gte("release_date", String(start)).lt("release_date", String(start + 10))
     .order("avg_score", { ascending: false }).order("rating_count", { ascending: false }).limit(24);
@@ -1301,7 +1315,7 @@ async function renderLists(tab) {
   view().innerHTML = `<header class="page-head"><h1 class="t-page">Lists</h1><p class="t-lead">Ranked lists from the charts, the community and your own shelf. Make your own and share them.</p></header>
     ${tabs([["charts", "Charts"], ["community", "Top rated"], ["browse", "Public lists"], ["yours", "My lists"], ["mine", "Your ranking"]], tab, "Lists")}
     <div id="lbody">${loadingLabel("Loading list")}<div class="grid">${skCards(8)}</div></div>`;
-  $$("[data-tab]").forEach((b) => b.onclick = () => { location.hash = `#/lists/${b.dataset.tab}`; });
+  $$("[data-tab]").forEach((b) => b.onclick = () => { go(`/lists/${b.dataset.tab}`); });
   const el = $("#lbody");
   const fail = () => { if (el.isConnected) el.innerHTML = errorState({ title: "This list didn't load", retry: () => renderLists(tab), compact: false }); };
   if (tab === "charts") {
@@ -1311,7 +1325,7 @@ async function renderLists(tab) {
       el.innerHTML = `<section class="section">${sectionHead("Billboard 200", { sub: c.week ? `Week of ${fmtDate(c.week)}` : "" })}
         <div class="grid">${c.items.map((it) => albumCard(it, { rank: it.rank })).join("")}</div></section>
         <section class="section">${sectionHead("More charts", { sub: "One for every genre" })}
-        <nav class="chips" aria-label="Genre charts">${GENRES.map((g) => `<a class="chip" href="#/genre/${g.slug}">${esc(g.name)}</a>`).join("")}</nav></section>`;
+        <nav class="chips" aria-label="Genre charts">${GENRES.map((g) => `<a class="chip" href="/genre/${g.slug}">${esc(g.name)}</a>`).join("")}</nav></section>`;
     } catch { fail(); }
   } else if (tab === "community") {
     try {
@@ -1321,7 +1335,7 @@ async function renderLists(tab) {
         ? `<section class="section">${sectionHead("Top rated on Rotation", { sub: RANKING_NOTE })}
             <div class="grid">${top.map((s, i) => statCard(s, { rank: i + 1 })).join("")}</div></section>`
         : emptyState({ iconName: "star", title: "No album has enough ratings yet", body: `Albums need ${MIN_RATINGS} ratings to appear here. Score a few and help build the list.`,
-            actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) });
+            actions: button("Browse the charts", { variant: "primary", href: "/lists/charts" }) });
     } catch { fail(); }
   } else if (tab === "browse") {
     await renderBrowseLists(el);
@@ -1337,7 +1351,7 @@ async function renderLists(tab) {
       if (!el.isConnected) return;
       el.innerHTML = rows.length ? `<div class="list">${rows.map((r, i) => listCard(r, i + 1)).join("")}</div>`
         : emptyState({ iconName: "disc", title: "Nothing ranked yet", body: "Score an album and it lands here, ordered by your rating.",
-            actions: button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) });
+            actions: button("Search albums", { variant: "primary", href: "/search", iconName: "search" }) });
     } catch { fail(); }
   }
 }
@@ -1464,7 +1478,7 @@ async function loadRecs() {
     const need = REC_MIN_RATINGS - ratings.length;
     $("#recWhy").textContent = `Popular right now, not personalized yet. Rate ${plural(need, "more album")} and these start to reflect your taste.`;
     try { const c = await billboard("billboard-200"); if (el.isConnected) el.innerHTML = c.items.slice(0, 12).map((it) => albumCard({ ...it, move: null, why: `#${it.rank} on the Billboard 200` })).join(""); }
-    catch { if (el.isConnected) el.outerHTML = `<div id="recs">${emptyState({ iconName: "star", compact: true, title: "Rate a few albums to get picks", body: "We match this week's charts and the community to what you score highly.", actions: button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) })}</div>`; }
+    catch { if (el.isConnected) el.outerHTML = `<div id="recs">${emptyState({ iconName: "star", compact: true, title: "Rate a few albums to get picks", body: "We match this week's charts and the community to what you score highly.", actions: button("Search albums", { variant: "primary", href: "/search", iconName: "search" }) })}</div>`; }
     return;
   }
   $("#recWhy").textContent = "Matching genres, artists and similar listeners to what you rate highly…";
@@ -1474,7 +1488,7 @@ async function loadRecs() {
     $("#recWhy").textContent = recsNote(m);
     el.innerHTML = m.items.length ? m.items.map((it) => albumCard(it)).join("")
       : emptyState({ title: "No new picks right now", body: "You've rated everything we'd suggest from your genres and artists. Try Surprise me or browse hidden gems.", compact: true,
-          actions: button("Surprise me", { variant: "primary", href: "#/surprise", iconName: "spark" }) });
+          actions: button("Surprise me", { variant: "primary", href: "/surprise", iconName: "spark" }) });
   };
   await getRecs(ratings, sig, paint);
 }
@@ -1486,7 +1500,7 @@ async function renderGenre(slug) {
   view().innerHTML = `
     <header class="page-head"><p class="t-meta" id="gsub">Billboard chart</p><h1 class="t-title">${esc(g.name)}</h1></header>
     <nav class="chips" aria-label="Other genres" style="margin-bottom:var(--s-8)">${GENRES.map((x) =>
-      `<a class="chip" href="#/genre/${x.slug}" ${x === g ? 'aria-current="page"' : ""}>${esc(x.name)}</a>`).join("")}</nav>
+      `<a class="chip" href="/genre/${x.slug}" ${x === g ? 'aria-current="page"' : ""}>${esc(x.name)}</a>`).join("")}</nav>
     <div class="grid" id="glist">${loadingLabel("Loading chart")}${skCards(12)}</div>`;
   const el = $("#glist");
   try {
@@ -1571,9 +1585,9 @@ async function renderProfile() {
     if (!list.length) {
       if (q && total) return emptyState({ iconName: "search", compact: true, title: `Nothing for “${profileQuery.trim()}”`, body: "Try a different title or artist, or clear the filter." });
       if (v.empty) return emptyState({ iconName: profileTab === "favorite" ? "heart" : profileTab === "want" ? "bookmark" : "note", compact: true, title: v.empty[0], body: v.empty[1],
-        actions: button("Browse the charts", { variant: "primary", href: "#/lists/charts" }) });
+        actions: button("Browse the charts", { variant: "primary", href: "/lists/charts" }) });
       return emptyState({ iconName: "disc", title: "Your library is empty", body: "Score your first album and your rankings, notes and standout tracks will collect here.",
-        actions: button("Browse the charts", { variant: "primary", href: "#/" }) + button("Search albums", { href: "#/search", iconName: "search" }) });
+        actions: button("Browse the charts", { variant: "primary", href: "/" }) + button("Search albums", { href: "/search", iconName: "search" }) });
     }
     const ranked = LIB_SORTS[sortKey].rating;
     const noYear = LIB_SORTS[sortKey].year ? list.filter((r) => !year(r.album.release_date)).length : 0;
@@ -1594,8 +1608,8 @@ async function renderProfile() {
         { label: "Albums rated", value: rows.length }, { label: "Average score", value: avg },
         { label: "Standout tracks", value: standouts }, { label: "Top genre", value: topGenre }],
         extra: `<div class="chips" style="margin-top:var(--s-4)">${profile
-          ? `${button("View public profile", { size: "sm", href: profileHref(profile.username), iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `#/year/${thisYear()}`, iconName: "star" })}${button("Stats", { size: "sm", href: "#/stats", iconName: "star" })}${button("Edit profile", { size: "sm", href: "#/me/edit", iconName: "note" })}<span class="t-meta" style="align-self:center">${profile.is_public ? "Public" : "Private until you make it public"}</span>`
-          : `${button("Create your profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `#/year/${thisYear()}`, iconName: "star" })}${button("Stats", { size: "sm", href: "#/stats", iconName: "star" })}<span class="t-meta" style="align-self:center">Pin favorites, share lists and let people follow you.</span>`}</div>` })}
+          ? `${button("View public profile", { size: "sm", href: profileHref(profile.username), iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `/year/${thisYear()}`, iconName: "star" })}${button("Stats", { size: "sm", href: "/stats", iconName: "star" })}${button("Edit profile", { size: "sm", href: "/me/edit", iconName: "note" })}<span class="t-meta" style="align-self:center">${profile.is_public ? "Public" : "Private until you make it public"}</span>`
+          : `${button("Create your profile", { variant: "primary", size: "sm", href: "/me/edit", iconName: "user" })}${button("Year in Rotation", { size: "sm", href: `/year/${thisYear()}`, iconName: "star" })}${button("Stats", { size: "sm", href: "/stats", iconName: "star" })}<span class="t-meta" style="align-self:center">Pin favorites, share lists and let people follow you.</span>`}</div>` })}
       ${tabs(Object.entries(LIB_VIEWS).map(([k, v]) => [k, `${v.label} (${count(k)})`]), profileTab, "Library views")}
       <div class="toolbar toolbar--lib">
         <label class="search search--lib"><span class="sr">Filter by title or artist</span>${icon("search", "search__icon")}
@@ -1648,7 +1662,7 @@ async function renderArtist(id) {
       stats: [{ label: "Studio albums", value: albums.length }, { label: lifeLabel, value: active }],
       extra: genres.length ? `<div class="chips" style="margin-top:var(--s-4)">${genres.map((g) => {
         const m = matchGenre(g.name);
-        return m ? `<a class="chip" href="#/genre/${m.slug}">${esc(g.name)}</a>` : `<span class="chip chip--static">${esc(g.name)}</span>`;
+        return m ? `<a class="chip" href="/genre/${m.slug}">${esc(g.name)}</a>` : `<span class="chip chip--static">${esc(g.name)}</span>`;
       }).join("")}</div>` : "" })}
     <section class="section">
       ${sectionHead("Albums", { sub: albums.length ? "Newest first" : "" })}
@@ -1661,7 +1675,7 @@ async function resolveArtist(name) {
   view().innerHTML = `${profileHeader({ initial: "", name: "Finding artist…" })}`;
   try {
     const j = await getJSON(`${MB}/artist?query=${encodeURIComponent(`artist:"${name.replace(/["\\]/g, "")}"`)}&fmt=json&limit=1`);
-    if (j.artists?.[0]) return location.replace(`#/artist/${j.artists[0].id}`);
+    if (j.artists?.[0]) return location.replace(`/artist/${j.artists[0].id}`);
   } catch {}
   view().innerHTML = emptyState({ iconName: "search", title: `Couldn't find ${name}`, body: "Try searching for them above.", compact: false });
 }
@@ -1675,7 +1689,7 @@ async function resolveFind(artist, title) {
     let j = await getJSON(`${MB}/release-group?query=${encodeURIComponent(`releasegroup:"${quote(clean)}" AND artist:"${quote(artist)}"`)}&fmt=json&limit=5`);
     let rg = (j["release-groups"] || [])[0];
     if (!rg) { j = await getJSON(`${MB}/release-group?query=${encodeURIComponent(`${clean} ${artist}`)}&fmt=json&limit=5`); rg = (j["release-groups"] || [])[0]; }
-    if (rg) return location.replace(`#/album/${rg.id}`);
+    if (rg) return location.replace(`/album/${rg.id}`);
   } catch {}
   view().innerHTML = emptyState({ iconName: "search", title: "Couldn't open this album yet", body: `We couldn't match “${title}” by ${artist} to an album page. Try searching for it.`,
     actions: button("Search", { href: searchHref(`${title} ${artist}`), iconName: "search" }) });
@@ -1761,7 +1775,7 @@ async function renderAlbum(id) {
   }
   setPageMeta(document.title, `${album.title} by ${album.artist}${yr ? ` (${yr})` : ""}${album.tracks?.length ? `, ${plural(album.tracks.length, "track")}` : ""}. ${S.stats ? `Community rating ${S.stats.avg_score} out of 10 from ${plural(S.stats.rating_count, "rating")}.` : "Not rated yet on Rotation."}`);
   const total = album.tracks?.reduce((s, t) => s + (t.length || 0), 0);
-  const artistHref = (aid) => aid ? `#/artist/${aid}` : `#/find-artist/${encodeURIComponent(album.artist)}`;
+  const artistHref = (aid) => aid ? `/artist/${aid}` : `/find-artist/${encodeURIComponent(album.artist)}`;
   const eyebrow = () => [album.album_type, yr].filter(Boolean).join(" · ");
   const facts = [album.release_date ? fmtDate(album.release_date) : "", album.tracks?.length ? plural(album.tracks.length, "track") : "", total ? `${Math.round(total / 60000)} min` : ""].filter(Boolean);
   const shared = !!S.mine?.is_public;
@@ -1793,7 +1807,7 @@ async function renderAlbum(id) {
   const pickerHTML = () => `<div class="picker" id="picker" role="group" aria-labelledby="pickLabel">${Array.from({ length: 10 }, (_, i) =>
     `<button type="button" data-s="${i + 1}"${RL.toneAttr(i + 1)} aria-pressed="${S.score === i + 1}" aria-label="Rate ${i + 1} out of 10">${i + 1}</button>`).join("")}</div>`;
 
-  const genreLinks = (album.genres || []).map((n) => { const g = matchGenre(n); return g ? `<a class="textlink" href="#/genre/${g.slug}">${esc(n)}</a>` : `<span>${esc(n)}</span>`; }).join('<span class="slash" aria-hidden="true">/</span>');
+  const genreLinks = (album.genres || []).map((n) => { const g = matchGenre(n); return g ? `<a class="textlink" href="/genre/${g.slug}">${esc(n)}</a>` : `<span>${esc(n)}</span>`; }).join('<span class="slash" aria-hidden="true">/</span>');
   const heroFigures = () => `
     <div class="figure"${RL.toneAttr(S.stats?.avg_score)}><span class="figure__num" id="heroAvg">${S.stats ? S.stats.avg_score : "–"}</span><span class="figure__label" id="heroCount">${S.stats ? `Community · ${plural(S.stats.rating_count, "rating")}` : "No ratings yet"}</span></div>
     <div class="figure figure--mine"${RL.toneAttr(S.score)}><span class="figure__num" id="heroMine">${S.score || "–"}</span><span class="figure__label">Your score</span></div>`;
@@ -1814,13 +1828,13 @@ async function renderAlbum(id) {
             ${genreLinks ? `<p class="ahero__genres" aria-label="Genres">${genreLinks}</p>` : ""}
             <div class="figures" id="heroFigures" aria-label="Scores">${heroFigures()}</div>
             <div class="album__actions">
-              <a class="btn btn--listen listen-link" id="listenBtn" href="${getStream() ? RL.streamingSearchUrl(getStream(), RL.listenQuery(album.artist, album.title)) : "#/settings"}" target="_blank" rel="noopener">${icon("play", "icon icon--play")}<span>${getStream() ? `Listen on ${esc(streamLabel(getStream()))}` : "Listen"}</span></a>
+              <a class="btn btn--listen listen-link" id="listenBtn" href="${getStream() ? RL.streamingSearchUrl(getStream(), RL.listenQuery(album.artist, album.title)) : "/settings"}" target="_blank" rel="noopener">${icon("play", "icon icon--play")}<span>${getStream() ? `Listen on ${esc(streamLabel(getStream()))}` : "Listen"}</span></a>
               ${button(S.mine ? "Edit your rating" : "Rate this album", { variant: "primary", id: "jumpRate", iconName: "star" })}
               ${button("Share", { id: "shareBtn", iconName: "share" })}
               <button type="button" class="btn" id="pinBtn" aria-pressed="${isPinned()}">${icon(isPinned() ? "check" : "pin")}<span>${isPinned() ? "Pinned to profile" : "Pin to profile"}</span></button>
               ${button("Add to list", { id: "listBtn", iconName: "list" })}
             </div>
-            <p class="listen__note t-meta" id="listenNote"${getStream() ? "" : " hidden"}>Opens in <span data-svc-name>${esc(streamLabel(getStream()))}</span>. <a class="textlink" href="#/settings">Change</a></p>
+            <p class="listen__note t-meta" id="listenNote"${getStream() ? "" : " hidden"}>Opens in <span data-svc-name>${esc(streamLabel(getStream()))}</span>. <a class="textlink" href="/settings">Change</a></p>
             <div id="statusWrap" class="status-wrap">${statusHTML()}</div>
           </div>
         </div>
@@ -1847,7 +1861,7 @@ async function renderAlbum(id) {
               <li class="track${S.standouts.has(t.title) ? " is-standout" : ""}">
                 <span class="track__pos">${esc(t.pos)}</span><span class="track__title">${esc(t.title)}</span>
                 <span class="track__len">${fmtLen(t.length)}</span>
-                <a class="icon-btn track__listen listen-link" href="#/settings" target="_blank" rel="noopener" data-track="${esc(t.title)}" aria-label="Listen to ${esc(t.title)}">${icon("play", "icon icon--play")}</a>
+                <a class="icon-btn track__listen listen-link" href="/settings" target="_blank" rel="noopener" data-track="${esc(t.title)}" aria-label="Listen to ${esc(t.title)}">${icon("play", "icon icon--play")}</a>
                 <button type="button" class="icon-btn" data-t="${esc(t.title)}" aria-pressed="${S.standouts.has(t.title)}" aria-label="Standout: ${esc(t.title)}">${icon("star")}</button>
               </li>`).join("")}</ol>`
               : emptyState({ iconName: "note", title: "No tracklist listed", body: "MusicBrainz doesn't have tracks for this album yet. You can still score it.", plain: true })}
@@ -2177,7 +2191,7 @@ async function loadAlbumMore(album, artistHref) {
       const j = await getJSON(`${MB}/release-group?artist=${album.artist_id}&type=album&limit=100&fmt=json`);
       const more = (j["release-groups"] || []).filter((g) => g.id !== album.id && isStudioAlbum(g))
         .sort((x, y) => (y["first-release-date"] || "").localeCompare(x["first-release-date"] || "")).slice(0, 12);
-      if (more.length) sections.push(`<section class="section">${sectionHead(`More from ${album.artist}`, { sub: "Same artist, from MusicBrainz. Newest first.", link: `#/artist/${album.artist_id}`, linkLabel: "All albums" })}
+      if (more.length) sections.push(`<section class="section">${sectionHead(`More from ${album.artist}`, { sub: "Same artist, from MusicBrainz. Newest first.", link: `/artist/${album.artist_id}`, linkLabel: "All albums" })}
         <div class="row">${more.map((g) => albumCard({ id: g.id, title: g.title, art: coverUrl(g.id, 250) }, { meta: year(g["first-release-date"]) || null })).join("")}</div></section>`);
     } catch {}
   }
@@ -2188,7 +2202,7 @@ async function loadAlbumMore(album, artistHref) {
       .sort((a, b) => b.shared.length - a.shared.length || (b.rating_count ? b.avg_score : 0) - (a.rating_count ? a.avg_score : 0)).slice(0, 12);
     if (ranked.length) {
       const g = matchGenre(album.genres[0]);
-      sections.push(`<section class="section">${sectionHead("Similar on Rotation", { sub: "Other albums people on Rotation have saved or rated that share this album's genres (MusicBrainz).", link: g ? `#/genre/${g.slug}` : null, linkLabel: "Genre chart" })}
+      sections.push(`<section class="section">${sectionHead("Similar on Rotation", { sub: "Other albums people on Rotation have saved or rated that share this album's genres (MusicBrainz).", link: g ? `/genre/${g.slug}` : null, linkLabel: "Genre chart" })}
         <div class="row">${ranked.map((a) => albumCard({ id: a.album_id, title: a.title, artist: a.artist, art: a.cover_url },
           { score: a.rating_count ? a.avg_score : null, count: a.rating_count, meta: `Shares ${a.shared.slice(0, 2).join(", ")}` })).join("")}</div></section>`);
     }
@@ -2198,7 +2212,7 @@ async function loadAlbumMore(album, artistHref) {
 
 function renderNotFound() {
   document.title = "Page not found · Rotation";
-  view().innerHTML = emptyState({ iconName: "search", title: "Page not found", body: "That link doesn't go anywhere in Rotation.", actions: button("Go home", { variant: "primary", href: "#/" }) });
+  view().innerHTML = emptyState({ iconName: "search", title: "Page not found", body: "That link doesn't go anywhere in Rotation.", actions: button("Go home", { variant: "primary", href: "/" }) });
 }
 
 /* ==========================================================================
@@ -2206,8 +2220,8 @@ function renderNotFound() {
    Other people only ever see rows from the public_* views, and only for profiles
    whose owner made them public. Your own page reads your own tables directly.
    ========================================================================== */
-const profileHref = (username) => `#/u/${username}`;
-const profileUrl = (username) => `${location.origin}${location.pathname}#/u/${username}`;
+const profileHref = (username) => `/u/${username}`;
+const profileUrl = (username) => `${location.origin}/u/${username}`;
 let profile = null; // the signed-in user's own profile row (private or public), or null
 async function loadProfile() {
   profile = null;
@@ -2232,7 +2246,7 @@ function tile({ href, art, title, artist, score, mine = false, note }) {
 // A list card: cover collage, title, creator (when browsing other people's lists) and details.
 // The collage and title are separate links so the creator link can sit between them.
 function listTile(l, { own = false, showCreator = false } = {}) {
-  const covers = l.covers || [], href = `#/list/${l.id}`;
+  const covers = l.covers || [], href = `/list/${l.id}`;
   const meta = [plural(l.item_count, "album"), own ? (l.is_public ? "Public" : "Private") : null,
     l.updated_at ? `Updated ${fmtDate(String(l.updated_at).slice(0, 10), "short")}` : null].filter(Boolean).join(" · ");
   const n = Math.min(4, covers.length);
@@ -2299,7 +2313,7 @@ async function renderPublicProfile(username) {
   }
   if (!p) {
     view().innerHTML = emptyState({ iconName: "user", title: "Profile not found", body: "This profile doesn't exist, or its owner keeps it private.",
-      actions: button("Go home", { variant: "primary", href: "#/" }), compact: false });
+      actions: button("Go home", { variant: "primary", href: "/" }), compact: false });
     return;
   }
   document.title = `${p.display_name || p.username} (@${p.username}) · Rotation`;
@@ -2318,8 +2332,8 @@ async function renderPublicProfile(username) {
     { label: "Followers", value: followers, id: "stFollowers" }, { label: "Following", value: counts?.following || 0 },
   ];
   const actions = own
-    ? `${button("Edit profile", { variant: "primary", size: "sm", href: "#/me/edit", iconName: "user" })}${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}`
-    : `<button type="button" class="btn btn--sm${following ? "" : " btn--primary"}" id="followBtn" aria-pressed="${following}">${icon(following ? "check" : "user")}<span>${following ? "Following" : "Follow"}</span></button>${button("Compare tastes", { size: "sm", href: `#/compare/${username}`, iconName: "spark" })}${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}${button("Report", { size: "sm", variant: "ghost", id: "reportProfile", iconName: "flag" })}`;
+    ? `${button("Edit profile", { variant: "primary", size: "sm", href: "/me/edit", iconName: "user" })}${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}`
+    : `<button type="button" class="btn btn--sm${following ? "" : " btn--primary"}" id="followBtn" aria-pressed="${following}">${icon(following ? "check" : "user")}<span>${following ? "Following" : "Follow"}</span></button>${button("Compare tastes", { size: "sm", href: `/compare/${username}`, iconName: "spark" })}${button("Share", { size: "sm", id: "shareProfile", iconName: "share" })}${button("Report", { size: "sm", variant: "ghost", id: "reportProfile", iconName: "flag" })}`;
   const recapYear = ratingsVisible ? RL.yearsWithRatings(d.ratings)[0] : null;
   const taste = ratingsVisible ? tasteOf(d.ratings) : null;
 
@@ -2328,26 +2342,26 @@ async function renderPublicProfile(username) {
     if (ptab === "ratings") {
       if (!ratingsVisible) body = emptyState({ iconName: "user", compact: true, title: "Ratings are private", body: `${p.display_name || "@" + p.username} keeps their ratings to themselves.` });
       else if (!d.ratings.length) body = emptyState({ iconName: "disc", compact: true, title: own ? "Nothing rated yet" : "No ratings yet",
-        body: own ? "Score an album and it lands in your grid." : "Check back once they've rated something.", actions: own ? button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) : "" });
+        body: own ? "Score an album and it lands in your grid." : "Check back once they've rated something.", actions: own ? button("Search albums", { variant: "primary", href: "/search", iconName: "search" }) : "" });
       else {
         const list = [...d.ratings].sort(psort === "top" ? (a, b) => b.score - a.score || String(b.rated_at).localeCompare(String(a.rated_at)) : (a, b) => String(b.rated_at).localeCompare(String(a.rated_at)));
         body = `<div class="chips" role="group" aria-label="Sort ratings" style="margin-bottom:var(--s-5)">
             <button type="button" class="chip" data-sort="recent" aria-pressed="${psort === "recent"}">Recently rated</button>
             <button type="button" class="chip" data-sort="top" aria-pressed="${psort === "top"}">Highest scores</button></div>
-          <div class="tiles">${list.map((r) => tile({ href: `#/album/${r.album_id}`, art: r.cover_url, title: r.title, artist: r.artist, score: r.score, mine: own, note: r.has_review ? "Review" : "" })).join("")}</div>
+          <div class="tiles">${list.map((r) => tile({ href: `/album/${r.album_id}`, art: r.cover_url, title: r.title, artist: r.artist, score: r.score, mine: own, note: r.has_review ? "Review" : "" })).join("")}</div>
           ${d.ratings.length >= 300 ? `<p class="t-meta" style="margin-top:var(--s-4)">Showing the 300 most recent ratings.</p>` : ""}`;
       }
     } else if (ptab === "reviews") {
       body = d.reviews.length ? `<div class="reviews">${d.reviews.map((r) => `<article class="review-card">
           <header class="review-card__head">${artwork(smallArt(r.cover_url), r.title, "thumb")}
-            <span class="review-card__who"><a href="#/album/${r.album_id}"><strong>${esc(r.title)}</strong></a><span class="t-meta">${esc(r.artist || "")} · Reviewed ${fmtDate(String(r.updated_at).slice(0, 10), "short")}</span></span>
+            <span class="review-card__who"><a href="/album/${r.album_id}"><strong>${esc(r.title)}</strong></a><span class="t-meta">${esc(r.artist || "")} · Reviewed ${fmtDate(String(r.updated_at).slice(0, 10), "short")}</span></span>
             ${scoreChip(r.score, { mine: own })}</header>
           <p class="review-card__body">${esc(r.body)}</p></article>`).join("")}</div>`
         : emptyState({ iconName: "note", compact: true, title: "No shared reviews", body: own ? "Write a review on an album page, share it, and credit it to your profile." : "Written reviews they choose to share appear here." });
     } else {
       body = d.lists.length ? `<div class="listtiles">${d.lists.map((l) => listTile(l, { own })).join("")}</div>`
         : emptyState({ iconName: "list", compact: true, title: own ? "No lists yet" : "No public lists", body: own ? "Group albums into lists, then make them public to show them here." : "Lists they make public appear here.",
-            actions: own ? button("Create a list", { variant: "primary", href: "#/lists/yours" }) : "" });
+            actions: own ? button("Create a list", { variant: "primary", href: "/lists/yours" }) : "" });
     }
     $("#pbody").innerHTML = `${tabs([["ratings", `Ratings${ratingsVisible ? ` (${d.ratings.length})` : ""}`], ["reviews", `Reviews (${d.reviews.length})`], ["lists", `Lists (${d.lists.length})`]], ptab, "Profile sections")}${body}`;
     $$("#pbody [data-tab]").forEach((b) => b.onclick = () => { ptab = b.dataset.tab; draw(); });
@@ -2357,13 +2371,13 @@ async function renderPublicProfile(username) {
   view().innerHTML = `
     ${profileHeader({ avatar: avatarHTML(p, "lg"), eyebrow: `@${p.username}${p.created_at ? ` · Joined ${fmtDate(String(p.created_at).slice(0, 7))}` : ""}`,
       name: p.display_name || p.username, stats,
-      extra: `${p.bio ? `<p class="profile__bio">${esc(p.bio)}</p>` : ""}<div class="chips" style="margin-top:var(--s-4)">${actions}${recapYear ? button("Year in Rotation", { size: "sm", href: `#/u/${username}/year/${recapYear}`, iconName: "star" }) : ""}</div>` })}
+      extra: `${p.bio ? `<p class="profile__bio">${esc(p.bio)}</p>` : ""}<div class="chips" style="margin-top:var(--s-4)">${actions}${recapYear ? button("Year in Rotation", { size: "sm", href: `/u/${username}/year/${recapYear}`, iconName: "star" }) : ""}</div>` })}
     ${own && !p.is_public ? `<p class="alert alert--warning" role="status" style="margin-bottom:var(--s-8)">${icon("alert")}<span>Only you can see this profile. Make it public in Edit profile to share the link.</span></p>` : ""}
-    ${d.pins.length || own ? `<section class="section">${sectionHead("Favorite albums", { sub: d.pins.length ? "" : "Pin up to six albums from any album page.", link: own ? "#/me/edit" : null, linkLabel: "Manage" })}
-      ${d.pins.length ? `<div class="tiles tiles--pins">${d.pins.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist })).join("")}</div>` : ""}</section>` : ""}
+    ${d.pins.length || own ? `<section class="section">${sectionHead("Favorite albums", { sub: d.pins.length ? "" : "Pin up to six albums from any album page.", link: own ? "/me/edit" : null, linkLabel: "Manage" })}
+      ${d.pins.length ? `<div class="tiles tiles--pins">${d.pins.map((x) => tile({ href: `/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist })).join("")}</div>` : ""}</section>` : ""}
     ${taste ? `<section class="section">${sectionHead("Taste", { sub: "From the ratings shown on this profile" })}<div class="chips">
-      ${taste.genres.map((n) => { const g = matchGenre(n); return g ? `<a class="chip" href="#/genre/${g.slug}">${esc(n)}</a>` : `<span class="chip chip--static">${esc(n)}</span>`; }).join("")}
-      ${taste.artists.map((n) => `<a class="chip" href="#/find-artist/${encodeURIComponent(n)}">${icon("user")}${esc(n)}</a>`).join("")}</div></section>` : ""}
+      ${taste.genres.map((n) => { const g = matchGenre(n); return g ? `<a class="chip" href="/genre/${g.slug}">${esc(n)}</a>` : `<span class="chip chip--static">${esc(n)}</span>`; }).join("")}
+      ${taste.artists.map((n) => `<a class="chip" href="/find-artist/${encodeURIComponent(n)}">${icon("user")}${esc(n)}</a>`).join("")}</div></section>` : ""}
     <div id="pbody"></div>`;
   draw();
 
@@ -2420,7 +2434,7 @@ async function renderProfileEdit() {
     <form id="pform" class="form" novalidate>
       <label class="field"><span class="field__label">Username</span>
         <input id="pUser" class="input" maxlength="20" value="${esc(p.username)}" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="uHint">
-        <span class="field__hint" id="uHint">3 to 20 lowercase letters, numbers or underscores. Your link: ${esc(location.origin + location.pathname)}#/u/<strong id="uPrev">${esc(p.username || "username")}</strong></span></label>
+        <span class="field__hint" id="uHint">3 to 20 lowercase letters, numbers or underscores. Your link: ${esc(location.origin)}/u/<strong id="uPrev">${esc(p.username || "username")}</strong></span></label>
       <label class="field"><span class="field__label">Display name <span class="t-meta">Optional</span></span>
         <input id="pName" class="input" maxlength="40" value="${esc(p.display_name || "")}" autocomplete="off"></label>
       <label class="field"><span class="field__label">Bio <span class="t-meta">Optional</span></span>
@@ -2467,7 +2481,7 @@ async function renderProfileEdit() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { btn.removeAttribute("aria-busy"); return toast(j.error || "Couldn't delete the account.", "error"); }
       await sb.auth.signOut(); profile = null;
-      toast("Your account was deleted", "info"); location.hash = "#/";
+      toast("Your account was deleted", "info"); go("/");
     } catch { btn.removeAttribute("aria-busy"); toast("Couldn't reach the server. Nothing was deleted.", "error"); }
   };
   $("#pUser").addEventListener("input", (e) => { $("#uPrev").textContent = e.target.value.trim().toLowerCase() || "username"; });
@@ -2512,7 +2526,7 @@ async function renderProfileEdit() {
     profile = { ...data, avatar_cover: data.albums?.cover_url || null };
     renderAccount();
     toast(profile.is_public ? "Profile saved" : "Profile saved. It's private until you make it public.");
-    location.hash = profileHref(profile.username);
+    go(profileHref(profile.username));
   });
 }
 
@@ -2546,7 +2560,7 @@ async function renderMyLists(el) {
     const { data: row, error: e2 } = await sb.from("lists").insert({ title, description: $("#lDesc").value.trim() || null, is_public: $("#lPublic").checked }).select("id").single();
     btn.removeAttribute("aria-busy");
     if (e2) { err.textContent = `Couldn't create the list: ${apiError(e2)}`; err.hidden = false; return; }
-    location.hash = `#/list/${row.id}`;
+    go(`/list/${row.id}`);
   });
 }
 
@@ -2556,7 +2570,7 @@ async function renderList(id) {
   if (sb && user) { const { data } = await sb.from("lists").select("*").eq("id", id).maybeSingle(); if (data) { list = data; own = true; } }
   if (!list && sb) { const { data } = await sb.from("public_lists").select("*").eq("id", id).maybeSingle(); list = data; }
   if (!list) {
-    view().innerHTML = emptyState({ iconName: "list", title: "List not found", body: "This list doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "#/" }), compact: false });
+    view().innerHTML = emptyState({ iconName: "list", title: "List not found", body: "This list doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "/" }), compact: false });
     return;
   }
   let items = [];
@@ -2572,23 +2586,23 @@ async function renderList(id) {
 
   const rowsHTML = () => items.length ? `<ol class="entries">${items.map((x, i) => `<li class="entry">
       <span class="entry__rank">${i + 1}</span>
-      <a class="entry__link" href="#/album/${x.album_id}">${artwork(smallArt(x.cover_url), `${x.title} by ${x.artist}`, "thumb")}
+      <a class="entry__link" href="/album/${x.album_id}">${artwork(smallArt(x.cover_url), `${x.title} by ${x.artist}`, "thumb")}
         <span class="list-card__text"><span class="list-card__title">${esc(x.title)}</span><span class="list-card__sub">${esc(x.artist || "")}</span></span></a>
       ${own ? `<span class="entry__actions">
         <button type="button" class="icon-btn" data-op="up" data-i="${i}" aria-label="Move ${esc(x.title)} up"${i === 0 ? " disabled" : ""}>${icon("up")}</button>
         <button type="button" class="icon-btn" data-op="down" data-i="${i}" aria-label="Move ${esc(x.title)} down"${i === items.length - 1 ? " disabled" : ""}>${icon("down")}</button>
         <button type="button" class="icon-btn" data-op="remove" data-i="${i}" aria-label="Remove ${esc(x.title)} from the list">${icon("close")}</button></span>` : ""}</li>`).join("")}</ol>`
     : emptyState({ iconName: "disc", compact: true, title: "No albums yet", body: own ? "Open any album and choose Add to list." : "This list is empty.",
-        actions: own ? button("Search albums", { variant: "primary", href: "#/search", iconName: "search" }) : "" });
+        actions: own ? button("Search albums", { variant: "primary", href: "/search", iconName: "search" }) : "" });
 
   const head = () => `<header class="page-head">
       <p class="t-meta">${own ? "Your list" : `List by <a class="textlink" href="${profileHref(list.username)}">@${esc(list.username)}</a>`}${own ? (list.is_public ? " · Public" : " · Private") : ""}
-        · <span id="listCount">${plural(items.length, "album")}</span> · Updated ${fmtDate(String(list.updated_at).slice(0, 10), "short")} · <a class="textlink" href="#/lists/browse">Browse public lists</a></p>
+        · <span id="listCount">${plural(items.length, "album")}</span> · Updated ${fmtDate(String(list.updated_at).slice(0, 10), "short")} · <a class="textlink" href="/lists/browse">Browse public lists</a></p>
       <h1 class="t-title">${esc(list.title)}</h1>
       ${list.description ? `<p class="t-lead">${esc(list.description)}</p>` : ""}
       <div class="chips">${own ? `${button("Edit list", { size: "sm", id: "editList", iconName: "note" })}` : ""}${button("Share", { size: "sm", id: "shareList", iconName: "share" })}${own ? "" : button("Report", { size: "sm", variant: "ghost", id: "reportList", iconName: "flag" })}</div>
-      ${own && list.is_public && profileNeedsPublic() ? `<p class="alert alert--warning" role="status">${icon("alert")}<span>This list is public, but your profile is private, so nobody else can see it. <a href="#/me/edit" style="text-decoration:underline">Make your profile public</a>.</span></p>` : ""}
-      ${own && list.is_public && !profile ? `<p class="alert alert--warning" role="status">${icon("alert")}<span>Create a public profile so others can find this list. <a href="#/me/edit" style="text-decoration:underline">Set up profile</a>.</span></p>` : ""}
+      ${own && list.is_public && profileNeedsPublic() ? `<p class="alert alert--warning" role="status">${icon("alert")}<span>This list is public, but your profile is private, so nobody else can see it. <a href="/me/edit" style="text-decoration:underline">Make your profile public</a>.</span></p>` : ""}
+      ${own && list.is_public && !profile ? `<p class="alert alert--warning" role="status">${icon("alert")}<span>Create a public profile so others can find this list. <a href="/me/edit" style="text-decoration:underline">Set up profile</a>.</span></p>` : ""}
     </header>`;
   const paint = () => { view().innerHTML = `${head()}<div id="entries">${rowsHTML()}</div><div id="editBox"></div>`; wire(); };
 
@@ -2628,7 +2642,7 @@ async function renderList(id) {
         if (!confirm(`Delete “${list.title}”? The albums stay in Rotation; only the list is removed.`)) return;
         const { error } = await sb.from("lists").delete().eq("id", id);
         if (error) return toast(`Couldn't delete: ${apiError(error)}`, "error");
-        toast("List deleted", "info"); location.hash = "#/lists/yours";
+        toast("List deleted", "info"); go("/lists/yours");
       };
       $("#editForm").onsubmit = async (e) => {
         e.preventDefault();
@@ -2662,7 +2676,7 @@ async function renderBrowseLists(el) {
     return list.length ? `<div class="listtiles">${list.map((l) => listTile(l, { showCreator: true })).join("")}</div>`
       : all.length ? emptyState({ iconName: "search", compact: true, title: `No lists match “${browseQuery.trim()}”`, body: "Try a different word, or clear the filter." })
       : emptyState({ iconName: "list", compact: true, title: "No public lists yet", body: "When people publish lists from public profiles, they show up here. Make yours public from My lists.",
-          actions: button("Make a list", { variant: "primary", href: "#/lists/yours" }) });
+          actions: button("Make a list", { variant: "primary", href: "/lists/yours" }) });
   };
   el.innerHTML = `<section class="section">${sectionHead("Public lists", { sub: all.length ? `${plural(all.length, "list")} from public profiles` : "" })}
     <div class="toolbar toolbar--lib"><label class="search search--lib"><span class="sr">Filter lists</span>${icon("search", "search__icon")}
@@ -2733,13 +2747,13 @@ function feedItemHTML(e) {
   const avatar = `<a href="${prof}" tabindex="-1" aria-hidden="true">${avatarHTML({ display_name: e.actor_name, username: e.actor_username, avatar_cover: e.actor_avatar })}</a>`;
   let action, subject, art, body = "";
   if (e.kind === "list") {
-    const covers = e.covers || [], n = Math.min(4, covers.length), href = `#/list/${e.list_id}`;
+    const covers = e.covers || [], n = Math.min(4, covers.length), href = `/list/${e.list_id}`;
     action = `${who} published a list`;
     subject = `<a class="feed__title" href="${href}">${esc(e.list_title)}</a><span class="t-meta">${plural(e.list_count, "album")}</span>`;
     art = `<a class="feed-item__art" href="${href}" tabindex="-1" aria-hidden="true"><span class="collage collage--${n}">${n ? covers.slice(0, n).map((c) => `<span class="collage__cell"><img src="${esc(smallArt(c))}" alt="" loading="lazy" onerror="this.remove()"></span>`).join("") : `<span class="collage__cell"></span>`}</span></a>`;
     body = e.body || "";
   } else {
-    const href = `#/album/${e.album_id}`;
+    const href = `/album/${e.album_id}`;
     action = `${who} ${e.kind === "review" ? "reviewed" : e.kind === "pin" ? "pinned a favorite" : "rated"}`;
     subject = `<a class="feed__title" href="${href}">${esc(e.album_title)}</a><span class="t-meta">${esc(e.album_artist || "")}</span>${e.score != null ? scoreChip(e.score, { label: "Their score" }) : ""}`;
     art = `<a class="feed-item__art" href="${href}" tabindex="-1" aria-hidden="true">${artwork(smallArt(e.cover_url), `${e.album_title} by ${e.album_artist}`)}</a>`;
@@ -2777,7 +2791,7 @@ async function renderFeed() {
         list.innerHTML = count
           ? emptyState({ iconName: "disc", title: "Nothing new yet", body: "The people you follow haven't rated, reviewed or published anything lately. Check back soon.", compact: true })
           : emptyState({ iconName: "user", title: "You're not following anyone yet", body: "Find listeners through public lists or the reviews on album pages, open their profile, and tap Follow.",
-              actions: button("Browse public lists", { variant: "primary", href: "#/lists/browse" }), compact: true });
+              actions: button("Browse public lists", { variant: "primary", href: "/lists/browse" }), compact: true });
         done = true; more.innerHTML = ""; return;
       }
       first = false;
@@ -2840,7 +2854,7 @@ async function renderNotifications() {
     $("#noteList").innerHTML = rows.length ? `<ul class="notes">${rows.map((n) => {
       const text = n.kind === "follow"
         ? `${n.actor_username ? `<a class="textlink" href="${profileHref(n.actor_username)}">@${esc(n.actor_username)}</a>` : "Someone"} started following you`
-        : `${n.total === 1 ? "1 person" : `${n.total} people`} liked your review of <a class="textlink" href="#/album/${n.album_id}">${esc(n.album_title || "an album")}</a>`;
+        : `${n.total === 1 ? "1 person" : `${n.total} people`} liked your review of <a class="textlink" href="/album/${n.album_id}">${esc(n.album_title || "an album")}</a>`;
       return `<li class="note${n.read_at ? "" : " is-unread"}">${icon(n.kind === "follow" ? "user" : "heart")}<span>${text}</span><time class="t-meta" datetime="${esc(n.updated_at)}">${esc(ago(n.updated_at))}</time></li>`; }).join("")}</ul>`
       : emptyState({ iconName: "disc", compact: true, title: "You're all caught up", body: "New followers and likes on your reviews will show up here." });
     if (rows.some((n) => !n.read_at)) sb.rpc("mark_notifications_read").then(() => refreshUnread());
@@ -2909,7 +2923,7 @@ function parseBrowse(h) {
   if (q.get("few")) f.few = "1"; if (q.get("divisive")) f.divisive = "1";
   return f;
 }
-const browseHref = (f) => { const q = new URLSearchParams(); Object.entries(f).forEach(([k, v]) => { if (v) q.set(k, v); }); return `#/browse${q.toString() ? "?" + q : ""}`; };
+const browseHref = (f) => { const q = new URLSearchParams(); Object.entries(f).forEach(([k, v]) => { if (v) q.set(k, v); }); return `/browse${q.toString() ? "?" + q : ""}`; };
 
 async function renderBrowse(f0 = {}) {
   document.title = "Browse · Rotation";
@@ -2921,7 +2935,7 @@ async function renderBrowse(f0 = {}) {
       <a class="chip" href="${browseHref({ min: "8", count: "3", few: "1", sort: "rated" })}">Hidden gems</a>
       <a class="chip" href="${browseHref({ divisive: "1", sort: "divisive" })}">Divisive</a>
       <a class="chip" href="${browseHref({ count: "3", sort: "rated" })}">Highest rated</a>
-      <a class="chip" href="#/surprise">Surprise me</a></div>
+      <a class="chip" href="/surprise">Surprise me</a></div>
     <form class="filters__grid filters__grid--browse" id="bfilters" novalidate>
       <label class="field"><span class="field__label">Genre</span><select class="select" data-b="genre"><option value="">Any genre</option>${GENRES.map((g) => opt(g.slug, g.name, f.genre)).join("")}</select></label>
       <label class="field"><span class="field__label">Decade</span><select class="select" data-b="decade"><option value="">Any decade</option>${DECADES.map((d) => opt(d.start, `${d.start}s`, f.decade)).join("")}</select></label>
@@ -2971,7 +2985,7 @@ async function renderBrowse(f0 = {}) {
     else el.innerHTML = (data || []).length
       ? `<div class="grid" id="bGrid">${cards}</div><div id="bMore" style="margin-top:var(--s-6)"></div>${note(g)}`
       : emptyState({ iconName: "search", title: "No albums match these filters", body: "Loosen a filter, or clear them all. Browse only covers albums that people on Rotation have rated or saved; search finds anything in MusicBrainz.",
-          actions: button("Clear filters", { id: "bEmptyClear" }) + button("Search instead", { href: "#/search", iconName: "search" }), compact: true });
+          actions: button("Clear filters", { id: "bEmptyClear" }) + button("Search instead", { href: "/search", iconName: "search" }), compact: true });
     $("#bEmptyClear")?.addEventListener("click", () => $("#bClear").click());
     offset += (data || []).length;
     $("#bCount").textContent = total ? `Showing ${Math.min(offset, total)} of ${total}` : "";
@@ -2986,7 +3000,7 @@ async function renderBrowse(f0 = {}) {
   };
   $("#bfilters").addEventListener("input", change);
   $("#bfilters").addEventListener("change", change);
-  $("#bClear").onclick = () => { $$("#bfilters [data-b]").forEach((el) => { if (el.type === "checkbox") el.checked = false; else el.value = el.dataset.b === "sort" ? "rated" : ""; }); Object.keys(f).forEach((k) => delete f[k]); history.replaceState(null, "", "#/browse"); run(false); };
+  $("#bClear").onclick = () => { $$("#bfilters [data-b]").forEach((el) => { if (el.type === "checkbox") el.checked = false; else el.value = el.dataset.b === "sort" ? "rated" : ""; }); Object.keys(f).forEach((k) => delete f[k]); history.replaceState(null, "", "/browse"); run(false); };
   run(false);
 }
 
@@ -3087,7 +3101,7 @@ async function renderSurprise() {
       }
       const c = pickOne(fresh);
       seen.add(cardKey(c)); saveSeen(seen);
-      const href = c.id ? `#/album/${c.id}` : `#/find/${encodeURIComponent(c.artist)}/${encodeURIComponent(c.title)}`;
+      const href = c.id ? `/album/${c.id}` : `/find/${encodeURIComponent(c.artist)}/${encodeURIComponent(c.title)}`;
       out.innerHTML = `<article class="surprise">
         <a class="surprise__art" href="${href}">${artwork(c.art, `${c.title} by ${c.artist}`)}</a>
         <div class="surprise__body">
@@ -3144,7 +3158,7 @@ async function renderCompare(aName, bName) {
   catch { view().innerHTML = errorState({ title: "Couldn't load the comparison", retry: () => renderCompare(aName, bName), compact: false }); return; }
   for (const P of [A, B]) if (!P.available) {
     view().innerHTML = emptyState({ iconName: "user", compact: false, title: P.reason === "private" ? `${P.name} keeps their ratings private` : "Profile not found",
-      body: P.reason === "private" ? "Taste comparison only works with people who show their ratings." : "This profile doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "#/" }) });
+      body: P.reason === "private" ? "Taste comparison only works with people who show their ratings." : "This profile doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "/" }) });
     return;
   }
   if (A.self && B.self) { view().innerHTML = emptyState({ iconName: "user", title: "That's you twice", body: "Pick someone else to compare with.", compact: false }); return; }
@@ -3152,7 +3166,7 @@ async function renderCompare(aName, bName) {
   const nameA = A.self ? "You" : A.name, nameB = B.self ? "You" : B.name;
   document.title = `${nameA} and ${nameB} · Compare tastes · Rotation`;
   const pair = (s) => `${nameA}: ${s.a} · ${nameB}: ${s.b}`;
-  const tileOf = (s) => tile({ href: `#/album/${s.album_id}`, art: s.cover_url, title: s.title, artist: s.artist, note: pair(s) });
+  const tileOf = (s) => tile({ href: `/album/${s.album_id}`, art: s.cover_url, title: s.title, artist: s.artist, note: pair(s) });
   const link = (P) => (P.username ? `<a class="textlink" href="${profileHref(P.username)}">${esc(P.self ? "You" : P.name)}</a>` : esc(P.name));
 
   view().innerHTML = `
@@ -3206,7 +3220,7 @@ async function renderRecap(username, yearArg) {
   } catch { view().innerHTML = errorState({ title: "Couldn't build the recap", retry: () => renderRecap(username, yearArg), compact: false }); return; }
   if (!P.available) {
     view().innerHTML = emptyState({ iconName: "user", compact: false, title: P.reason === "private" ? "This recap isn't shared" : "Profile not found",
-      body: P.reason === "private" ? `${P.name} keeps their ratings private.` : "This profile doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "#/" }) });
+      body: P.reason === "private" ? `${P.name} keeps their ratings private.` : "This profile doesn't exist, or its owner keeps it private.", actions: button("Go home", { variant: "primary", href: "/" }) });
     return;
   }
   const years = RL.yearsWithRatings(P.rows), year = +yearArg || +years[0] || thisYear();
@@ -3216,9 +3230,9 @@ async function renderRecap(username, yearArg) {
   const who = P.self ? "You" : P.name;
   const yearReviews = reviews.filter((x) => String(x.when).startsWith(String(year))).sort((a, b) => String(b.body).length - String(a.body).length).slice(0, 3);
   document.title = `${who === "You" ? "Your" : who + "'s"} ${year} in Rotation`;
-  const base = P.username ? `#/u/${P.username}/year/` : `#/year/`;
+  const base = P.username ? `/u/${P.username}/year/` : `/year/`;
   const maxN = Math.max(...r.byMonth.map((m) => m.n), 1);
-  const shareUrl = P.username ? `${location.origin}${location.pathname}#/u/${P.username}/year/${year}` : "";
+  const shareUrl = P.username ? `${location.origin}/u/${P.username}/year/${year}` : "";
 
   view().innerHTML = `
     <article class="recap" aria-labelledby="recap-h">
@@ -3236,14 +3250,14 @@ async function renderRecap(username, yearArg) {
         <div class="months" role="img" aria-label="Albums rated per month: ${r.byMonth.map((m) => `${MONTHS[m.month - 1]} ${m.n}`).join(", ")}">${r.byMonth.map((m) => `
           <div class="months__col" title="${MONTHS[m.month - 1]}: ${plural(m.n, "album")}${m.avg != null ? `, averaging ${m.avg}` : ""}"><span class="dist__n">${m.n || ""}</span><span class="dist__track"><span class="dist__bar" style="height:${m.n ? Math.max(6, Math.round((m.n / maxN) * 100)) : 2}%"></span></span><span class="dist__label">${MONTHS[m.month - 1][0]}</span></div>`).join("")}</div>
         <p class="t-meta">${r.busiestMonth ? `Busiest month: ${MONTHS[r.busiestMonth - 1]}. ` : ""}${r.trend ? `Your scores ${r.trend.direction === "steady" ? "stayed steady" : r.trend.direction === "up" ? "rose" : "fell"} through the year: ${r.trend.first} average for the first half, ${r.trend.second} for the second.` : "A trend needs 10 or more ratings in the year."}</p></section>
-      ${r.topRated.length ? `<section class="section">${sectionHead("Highest rated", { sub: "Your best scores this year" })}<div class="tiles">${r.topRated.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self })).join("")}</div></section>` : ""}
-      ${r.discoveries.length ? `<section class="section">${sectionHead("Highest rated, least heard", { sub: "Albums you scored 8+ that 10 or fewer people on Rotation have rated" })}<div class="tiles">${r.discoveries.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(counts.get(x.album_id) || 0, "rating") + " on Rotation" })).join("")}</div></section>` : ""}
-      ${r.mostRated.length ? `<section class="section">${sectionHead("Most-rated albums you rated", { sub: "The albums you rated that the most people on Rotation have rated" })}<div class="tiles">${r.mostRated.map((x) => tile({ href: `#/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(x.community_count, "rating") })).join("")}</div></section>` : ""}
+      ${r.topRated.length ? `<section class="section">${sectionHead("Highest rated", { sub: "Your best scores this year" })}<div class="tiles">${r.topRated.map((x) => tile({ href: `/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self })).join("")}</div></section>` : ""}
+      ${r.discoveries.length ? `<section class="section">${sectionHead("Highest rated, least heard", { sub: "Albums you scored 8+ that 10 or fewer people on Rotation have rated" })}<div class="tiles">${r.discoveries.map((x) => tile({ href: `/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(counts.get(x.album_id) || 0, "rating") + " on Rotation" })).join("")}</div></section>` : ""}
+      ${r.mostRated.length ? `<section class="section">${sectionHead("Most-rated albums you rated", { sub: "The albums you rated that the most people on Rotation have rated" })}<div class="tiles">${r.mostRated.map((x) => tile({ href: `/album/${x.album_id}`, art: x.cover_url, title: x.title, artist: x.artist, score: x.score, mine: P.self, note: plural(x.community_count, "rating") })).join("")}</div></section>` : ""}
       ${r.genres.length || r.artists.length ? `<section class="section">${sectionHead("Favorite genres and artists", { sub: "Genres and artists with 2+ albums rated this year" })}
         ${r.genres.length ? `<div class="chips">${r.genres.map((g) => `<span class="chip chip--static">${esc(g.name)} · ${plural(g.n, "album")}, avg ${g.avg}</span>`).join("")}</div>` : ""}
         ${r.artists.length ? `<div class="chips" style="margin-top:var(--s-3)">${r.artists.map((a) => `<span class="chip chip--static">${icon("user")}${esc(a.name)} · ${plural(a.n, "album")}, avg ${a.avg}</span>`).join("")}</div>` : ""}</section>` : ""}
       ${yearReviews.length ? `<section class="section">${sectionHead("Memorable reviews", { sub: "Reviews shared publicly this year" })}<div class="reviews">${yearReviews.map((x) => `<article class="review-card"><header class="review-card__head">${artwork(smallArt(x.cover_url), x.title, "thumb")}
-        <span class="review-card__who"><a href="#/album/${x.album_id}"><strong>${esc(x.title)}</strong></a><span class="t-meta">${esc(x.artist || "")}</span></span>${scoreChip(x.score, { mine: P.self })}</header><p class="review-card__body">${esc(x.body)}</p></article>`).join("")}</div></section>` : ""}` : emptyState({ iconName: "disc", compact: true, title: `Nothing rated in ${year}`, body: P.self ? "Rate an album and it will show up in your recap." : "Check another year." })}
+        <span class="review-card__who"><a href="/album/${x.album_id}"><strong>${esc(x.title)}</strong></a><span class="t-meta">${esc(x.artist || "")}</span></span>${scoreChip(x.score, { mine: P.self })}</header><p class="review-card__body">${esc(x.body)}</p></article>`).join("")}</div></section>` : ""}` : emptyState({ iconName: "disc", compact: true, title: `Nothing rated in ${year}`, body: P.self ? "Rate an album and it will show up in your recap." : "Check another year." })}
       <footer class="recap__note"><h2 class="t-label">What this measures</h2>
         <p>Albums ${esc(who === "You" ? "you" : who)} rated on Rotation in ${year}, counted by the day each was first rated. Rotation doesn't track what anyone listens to, so this is not listening time, play counts or an all-time ranking. Only real ratings are used; genres come from MusicBrainz tags.</p></footer>
     </article>`;
@@ -3297,9 +3311,9 @@ async function exportRecapImage(r, handle, who) {
 }
 
 /* ==========================================================================
-   Stats dashboard (#/stats): listening diary heatmap, decades, genres, top artists, picks.
+   Stats dashboard (/stats): listening diary heatmap, decades, genres, top artists, picks.
    Everything is computed from the viewer's own ratings (see RL.statsOf). The diary counts the day each album was first
-   rated, not listening time. Signed-out visitors can open #/stats/sample, a clearly labeled demo made of fake data.
+   rated, not listening time. Signed-out visitors can open /stats/sample, a clearly labeled demo made of fake data.
    ========================================================================== */
 const SAMPLE_POOL = [
   ["Nevermind", "Nirvana", ["grunge", "rock"], "1991-09-24"], ["OK Computer", "Radiohead", ["alternative rock", "art rock"], "1997-05-21"], ["Blue", "Joni Mitchell", ["folk", "singer-songwriter"], "1971-06-22"],
@@ -3411,11 +3425,11 @@ async function renderStats(sampleMode) {
   } catch { view().innerHTML = errorState({ title: "Couldn't load your stats", retry: () => renderStats(sampleMode), compact: false }); return; }
   if (!rows.length) {
     view().innerHTML = emptyState({ iconName: "disc", compact: false, title: "Nothing to chart yet", body: "Rate a few albums and your diary, decades and genres appear here.",
-      actions: `${button("Find an album", { variant: "primary", href: "#/search", iconName: "search" })}${button("See a sample", { href: "#/stats/sample" })}` });
+      actions: `${button("Find an album", { variant: "primary", href: "/search", iconName: "search" })}${button("See a sample", { href: "/stats/sample" })}` });
     return;
   }
   const S = RL.statsOf(rows, today), h = S.heat;
-  const sampleBanner = demo ? `<p class="stats__sample" role="note"><strong>Sample data.</strong> These numbers are made up to show the layout. ${user ? button("See your own stats", { size: "sm", href: "#/stats" }) : `<a class="textlink" href="#/stats" id="statsSignIn">Sign in</a> to see yours.`}</p>` : "";
+  const sampleBanner = demo ? `<p class="stats__sample" role="note"><strong>Sample data.</strong> These numbers are made up to show the layout. ${user ? button("See your own stats", { size: "sm", href: "/stats" }) : `<a class="textlink" href="/stats" id="statsSignIn">Sign in</a> to see yours.`}</p>` : "";
   view().innerHTML = `
     <div class="stats">
     <header class="page-head"><p class="t-meta">${demo ? "Sample preview" : "Your stats"}</p><h1 class="t-title">Listening stats</h1>
@@ -3458,7 +3472,7 @@ async function renderStats(sampleMode) {
     if (!recs.isConnected) return;
     why.textContent = recsNote(picks);
     recs.innerHTML = picks.items.length ? picks.items.map((it) => albumCard(it)).join("")
-      : emptyState({ title: "No new picks right now", body: "Try Surprise me or browse hidden gems.", compact: true, actions: button("Surprise me", { variant: "primary", href: "#/surprise", iconName: "spark" }) });
+      : emptyState({ title: "No new picks right now", body: "Try Surprise me or browse hidden gems.", compact: true, actions: button("Surprise me", { variant: "primary", href: "/surprise", iconName: "spark" }) });
   });
 }
 
@@ -3474,7 +3488,8 @@ function setPageMeta(title, description = DEFAULT_DESC) {
   set('meta[name="description"]', "content", description);
   set('meta[property="og:title"]', "content", document.title);
   set('meta[property="og:description"]', "content", description);
-  set('link[rel="canonical"]', "href", location.origin + location.pathname + location.hash);
+  set('link[rel="canonical"]', "href", location.origin + location.pathname);
+  set('meta[property="og:url"]', "content", location.origin + location.pathname);
 }
 // Error boundary: a failure while drawing a page shows a recoverable message instead of a blank screen
 function onRouteError(err) {
@@ -3493,48 +3508,57 @@ new MutationObserver(() => {
   if (v && !$("h1", v)) v.insertAdjacentHTML("afterbegin", `<h1 class="sr">${esc(document.title.replace(/ · Rotation$/, ""))}</h1>`);
 }).observe($("#view"), { childList: true });
 function route() {
+  window.dispatchEvent(new Event("rotation:route"));
   setPageMeta("Rotation");
   try { const r = routeInner(); if (r && typeof r.catch === "function") r.catch(onRouteError); } catch (e) { onRouteError(e); }
 }
 function routeInner() {
-  const h = location.hash || "#/";
+  const path = location.pathname.replace(/(.)\/+$/, "$1") || "/", h = path + location.search;   // path for plain routes, path + query for search and browse
   window.scrollTo(0, 0);
   $("#nav").classList.remove("is-tucked");
-  const own = profile && h.toLowerCase() === `#/u/${profile.username}`;
-  const section = h.startsWith("#/me") || own ? "me" : /^#\/(genre|genres|explore|decade|browse|surprise)\b/.test(h) ? "explore" : /^#\/lists?\b/.test(h) ? "lists"
-    : h.startsWith("#/search") ? "search" : h === "#/" || h === "#" ? "discover" : "";
+  const own = profile && path.toLowerCase() === `/u/${profile.username}`;
+  const section = path.startsWith("/me") || own ? "me" : /^\/(genre|genres|explore|decade|browse|surprise)\b/.test(path) ? "explore" : /^\/lists?\b/.test(path) ? "lists"
+    : path.startsWith("/search") ? "search" : path === "/" ? "discover" : "";
   $$("[data-nav]").forEach((a) => (a.dataset.nav === section ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
   refreshUnread();
   let m;
-  if ((m = h.match(/^#\/album\/([0-9a-f-]{36})/i))) return renderAlbum(m[1]);
-  if ((m = h.match(/^#\/artist\/([0-9a-f-]{36})/i))) return renderArtist(m[1]);
-  if ((m = h.match(/^#\/find-artist\/(.+)$/))) return resolveArtist(decodeURIComponent(m[1]));
-  if ((m = h.match(/^#\/find\/([^/]+)\/(.+)$/))) return resolveFind(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
-  if ((m = h.match(/^#\/genre\/([a-z-]+)/))) return renderGenre(m[1]);
-  // Links from sign-up and reset emails come back with the session in the hash. Show the home page while it is processed.
-  if (/^#(access_token|error|type=)/.test(h)) return renderHome();
-  if (h === "#/stats") return renderStats(false);
-  if (h === "#/stats/sample") return renderStats(true);
-  if (h === "#/feed") return renderFeed();
-  if (h === "#/notifications") return renderNotifications();
-  if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})\/year\/(\d{4})$/i))) return renderRecap(m[1].toLowerCase(), m[2]);
-  if ((m = h.match(/^#\/year(?:\/(\d{4}))?$/))) return renderRecap(null, m[1]);
-  if ((m = h.match(/^#\/compare\/([a-z0-9_]{3,20})(?:\/([a-z0-9_]{3,20}))?$/i))) return renderCompare(m[1].toLowerCase(), m[2]?.toLowerCase());
-  if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})$/i))) return renderPublicProfile(m[1]);
-  if ((m = h.match(/^#\/list\/([0-9a-f-]{36})$/i))) return renderList(m[1]);
-  if (h === "#/settings") return renderSettings();
-  if (h === "#/me/edit") return renderProfileEdit();
-  if ((m = h.match(/^#\/decade\/(\d{4})$/))) return renderDecade(+m[1]);
-  if ((m = h.match(/^#\/lists(?:\/([a-z]+))?$/))) return renderLists(m[1]);
-  if (/^#\/browse(?:\?|$)/.test(h)) return renderBrowse(parseBrowse(h));
-  if (h === "#/surprise") return renderSurprise();
-  if (/^#\/search(?:[\/?]|$)/.test(h)) { const s = parseSearchHash(h); return renderSearch(s.term, s.f); }
-  if (h.startsWith("#/explore") || h.startsWith("#/genres")) return renderExplore();
-  if (h.startsWith("#/me")) return renderProfile();
-  if (h === "#/" || h === "#") return renderHome();
+  if ((m = path.match(/^\/album\/([0-9a-f-]{36})/i))) return renderAlbum(m[1]);
+  if ((m = path.match(/^\/artist\/([0-9a-f-]{36})/i))) return renderArtist(m[1]);
+  if ((m = path.match(/^\/find-artist\/(.+)$/))) return resolveArtist(decodeURIComponent(m[1]));
+  if ((m = path.match(/^\/find\/([^/]+)\/(.+)$/))) return resolveFind(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
+  if ((m = path.match(/^\/genre\/([a-z-]+)/))) return renderGenre(m[1]);
+  if (path === "/stats") return renderStats(false);
+  if (path === "/stats/sample") return renderStats(true);
+  if (path === "/feed") return renderFeed();
+  if (path === "/notifications") return renderNotifications();
+  if ((m = path.match(/^\/u\/([a-z0-9_]{3,20})\/year\/(\d{4})$/i))) return renderRecap(m[1].toLowerCase(), m[2]);
+  if ((m = path.match(/^\/year(?:\/(\d{4}))?$/))) return renderRecap(null, m[1]);
+  if ((m = path.match(/^\/compare\/([a-z0-9_]{3,20})(?:\/([a-z0-9_]{3,20}))?$/i))) return renderCompare(m[1].toLowerCase(), m[2]?.toLowerCase());
+  if ((m = path.match(/^\/u\/([a-z0-9_]{3,20})$/i))) return renderPublicProfile(m[1]);
+  if ((m = path.match(/^\/list\/([0-9a-f-]{36})$/i))) return renderList(m[1]);
+  if (path === "/settings") return renderSettings();
+  if (path === "/me/edit") return renderProfileEdit();
+  if ((m = path.match(/^\/decade\/(\d{4})$/))) return renderDecade(+m[1]);
+  if ((m = path.match(/^\/lists(?:\/([a-z]+))?$/))) return renderLists(m[1]);
+  if (/^\/browse(?:\?|$)/.test(h)) return renderBrowse(parseBrowse(h));
+  if (path === "/surprise") return renderSurprise();
+  if (/^\/search(?:[\/?]|$)/.test(h)) { const s = parseSearchHash(h); return renderSearch(s.term, s.f); }
+  if (path.startsWith("/explore") || path.startsWith("/genres")) return renderExplore();
+  if (path.startsWith("/me")) return renderProfile();
+  if (path === "/" || path === "#") return renderHome();
   renderNotFound();
 }
-window.addEventListener("hashchange", route);
+// Path routing (History API). Links stay plain <a href="/album/...">, so they work with right-click, middle-click, copy link and crawlers.
+window.addEventListener("popstate", route);
+document.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target.closest?.("a[href]");
+  if (!a || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
+  const href = a.getAttribute("href");
+  if (!href || href[0] !== "/" || href[1] === "/") return;   // only same-site paths; "#view" skip links, https links and "//" are left to the browser
+  e.preventDefault();
+  go(href);
+});
 
 // Album page backdrop fades out as you scroll so the content below sits on the plain page color
 // On phones, tuck the nav away while scrolling down; bring it back on scroll up
@@ -3546,8 +3570,8 @@ window.addEventListener("scroll", () => {
 }, { passive: true });
 
 // Bottom navigation for phones and small tablets (CSS shows it under 860px)
-$("#tabbar").innerHTML = [["discover", "#/", "Home", "compass"], ["explore", "#/explore", "Explore", "grid"], ["lists", "#/lists", "Lists", "list"],
-  ["search", "#/search", "Search", "search"], ["me", "#/me", "Profile", "user"]]
+$("#tabbar").innerHTML = [["discover", "/", "Home", "compass"], ["explore", "/explore", "Explore", "grid"], ["lists", "/lists", "Lists", "list"],
+  ["search", "/search", "Search", "search"], ["me", "/me", "Profile", "user"]]
   .map(([key, href, label, ic]) => `<a href="${href}" data-nav="${key}">${icon(ic)}<span>${label}</span></a>`).join("");
 
 (async function start() {

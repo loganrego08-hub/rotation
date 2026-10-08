@@ -12,10 +12,13 @@
     {
       "source": "/(app.js|lib.js|styles.css|config.js)",
       "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
-    }
-    ,{
+    },
+    {
       "source": "/fonts/(.*)",
       "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
     }
+  ],
+  "rewrites": [
+    { "source": "/((?!api/|fonts/|tests/|.*\\.[A-Za-z0-9]+$).*)", "destination": "/index.html" }
   ]
 }

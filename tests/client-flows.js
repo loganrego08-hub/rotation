@@ -127,7 +127,7 @@
   const submit = async (formSel) => { document.querySelector(formSel).dispatchEvent(new Event("submit", { cancelable: true, bubbles: true })); await wait(600); };
 
   user = { id: "x", email: "test@example.com" }; profile = null; writes.length = 0;
-  stubDb(); location.hash = "#/"; await wait(300);
+  stubDb(); go("/"); await wait(300);
   await renderProfileEdit(); await wait(600);
   setVal("#pUser", "ab"); await submit("#pform");
   check("a too-short username is rejected before anything is written", !document.querySelector("#pError").hidden && writes.length === 0);
@@ -150,7 +150,7 @@
   setVal("#lTitle", "Albums For A Night Drive"); document.querySelector("#lPublic").checked = true; await submit("#newList");
   const lrow = writes.find((w) => w.tb === "lists")?.payload || {};
   check("creating a list sends title, description and visibility only", JSON.stringify(Object.keys(lrow).sort()) === JSON.stringify(["description", "is_public", "title"]) && lrow.title === "Albums For A Night Drive" && lrow.is_public === true, JSON.stringify(lrow));
-  check("after creating, it opens the new list", location.hash === "#/list/11111111-1111-4111-8111-111111111111", location.hash);
+  check("after creating, it opens the new list", here() === "/list/11111111-1111-4111-8111-111111111111", here());
 
   rpcs.length = 0; stubDb();
   openReportDialog({ type: "review", id: "abc-123", label: "this review" }); await wait(300);
@@ -208,7 +208,7 @@
   reply = { ok: true, status: 200, body: { ok: true } }; document.querySelector("#deleteAccount").click(); await wait(600);
   const call = fetched.at(-1);
   check("confirmed deletion posts the person's own token and the confirmation", call && call.opts.method === "POST" && call.opts.headers.Authorization === "Bearer tok123" && JSON.parse(call.opts.body).confirm === "DELETE", JSON.stringify(call?.opts));
-  check("after deletion the person is signed out and sent home", signedOut === 1 && location.hash === "#/");
+  check("after deletion the person is signed out and sent home", signedOut === 1 && here() === "/");
   window.fetch = realFetch; window.prompt = realPrompt;
 
   const fails = results.filter((r) => r.startsWith("FAIL")).length;
