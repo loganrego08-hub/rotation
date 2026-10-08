@@ -577,7 +577,8 @@ function openAuth(opts) {
   saveIntent(o.intent || null);
   $("#authDialog").showModal(); $("#authEmail").focus();
 }
-const authExtras = (show) => ["authProviders", "authOr", "authMagicRow", "authIntro"].forEach((id) => { $("#" + id).hidden = !show; });
+const anyProvider = cfg.AUTH_GOOGLE !== false || cfg.AUTH_APPLE === true;   // with no provider on, the "or with your email" divider has nothing above it
+const authExtras = (show) => ["authProviders", "authOr", "authMagicRow", "authIntro"].forEach((id) => { $("#" + id).hidden = !show || (!anyProvider && (id === "authProviders" || id === "authOr")); });
 function setAuthMode(up) {
   signingUp = up; recovering = false;
   $("#authTitle").textContent = up ? "Create your account" : "Sign in";

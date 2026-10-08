@@ -5,6 +5,6 @@ window.ROTATION_CONFIG = {
   // Apple artwork is only licensed for promoting Apple store content. Set to false (and APPLE_ART=off in Vercel) to use Cover Art Archive only.
   APPLE_ART: true,
   // Sign-in buttons. Turn each on only after its provider is enabled in Supabase (Authentication > Providers).
-  AUTH_GOOGLE: true,
+  AUTH_GOOGLE: false,
   AUTH_APPLE: false,
 };
