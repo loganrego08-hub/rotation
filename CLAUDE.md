@@ -172,3 +172,16 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   The only third-party script (supabase-js 2.45.4 from jsdelivr) is pinned with an SRI hash; recompute it (`sha384`, base64) whenever the version changes.
 - `go()` only follows same-origin or http(s) URLs. All user text is escaped with `esc()` before it is put in HTML; `tests/xss.html` proves it (see tests/README.md). Use `esc()` for anything new.
 - Dashboard-only settings (cannot be set from code): minimum password length, leaked-password protection (Pro plan), CAPTCHA on sign-up, email confirmation (off, so sign-up reveals whether an email is registered and mass sign-ups are possible).
+
+## Sources, limits and licences (checked October 2026 against each provider's own pages)
+- MusicBrainz API: about 1 request/second per source IP (HTTP 503 beyond that), a User-Agent with a contact is mandatory (`Rotation/1.0 ( https://rotation-ten.vercel.app )`, override with `MB_CONTACT`).
+  Core data is CC0. Tags and genre associations are SUPPLEMENTARY data under CC BY-NC-SA 3.0 (attribution, non-commercial, share-alike): `albums.genres` is built from them, so Rotation must stay non-commercial
+  (matches the Vercel Hobby plan) and credit MusicBrainz, which the footer does. If Rotation ever becomes commercial, drop MusicBrainz genre tags or license them from MetaBrainz.
+- Cover Art Archive: no licence is stated for the images ("use at your own risk", rights stay with artists and labels); images are served by archive.org through 307 redirects. Rotation only hot-links them.
+- Apple (iTunes Search/RSS): about 20 calls/minute; artwork may be used only to promote the related store content, next to a store badge linking to purchase pages. Rotation shows Apple art on chart cards with no such badge,
+  which is outside those terms. OWNER DECISION PENDING: set `APPLE_ART=off` in Vercel (and `APPLE_ART: false` in config.js) to use Cover Art Archive art only; chart cards then fill in more slowly through `healCovers`.
+- Billboard: genre charts are read from billboard.com pages; their terms could not be fetched or confirmed, so treat that as unverified and likely not permitted. The Billboard 200 comes from a public GitHub dataset.
+- Nothing downloads, stores or re-serves artwork: images load straight from the providers into the visitor's browser, the album-colour tint is a derived colour kept for the session, and exports/PNGs contain no artwork.
+- Public profile pages get share metadata like albums and lists (`profileMeta`, `api/page.js` kind=profile, only from the `public_profiles` view; private or missing profiles get the generic page). Public profiles are in the sitemap.
+- Paging: Supabase returns at most 1000 rows per request without saying so, so anything that must be complete (library, data export) goes through `fetchAll` (ordered query ending in a unique column). Schema v13 added indexes for follows, albums (artist, release_date, genres) and ratings (user, updated_at).
+  `album_catalog` aggregates ratings live on every read (always correct, never client-supplied); it is instant at current size. If it gets slow (tens of thousands of ratings) replace it with a trigger-maintained summary table.

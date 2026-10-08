@@ -2,6 +2,7 @@
 // (link previews in chat apps, search engines) see the right thing. vercel.json rewrites every page path here:
 //   /album/:id  -> album from Supabase (album_catalog), else MusicBrainz;  cover art, community score when there are ratings
 //   /list/:id   -> a PUBLIC list (public_lists view; private lists simply aren't there, so nothing leaks)
+//   /u/:username -> a PUBLIC profile (public_profiles view; private profiles get the generic page)
 //   /artist/:id -> artist name from MusicBrainz
 //   anything else -> a title and description for that kind of page, canonical URL, noindex for personal pages
 // The browser app takes over after load exactly as before; this only decides what is in <head>.
@@ -63,6 +64,12 @@ module.exports = async (req, res) => {
       const rows = await supabase(`public_lists?id=eq.${id}&select=title,description,username,item_count,covers&limit=1`).catch(() => []);
       if (rows[0]) meta = RL.listMeta(rows[0], { origin, id });
       pathname = `/list/${id}`;
+    } else if (q.kind === "profile" && /^[a-z0-9_]{3,20}$/.test(String(q.username || ""))) {
+      // public_profiles only holds people who made their profile public, so a private profile gets the generic page and nothing about it leaks
+      const username = String(q.username);
+      const rows = await supabase(`public_profiles?username=eq.${username}&select=username,display_name,bio,rating_count,review_count&limit=1`).catch(() => []);
+      if (rows[0]) meta = RL.profileMeta(rows[0], { origin, username });
+      pathname = `/u/${username}`;
     } else if (q.kind === "artist" && UUID.test(id)) {
       const a = await getJSON(`https://musicbrainz.org/ws/2/artist/${id}?fmt=json`, { "User-Agent": UA }).catch(() => null);
       if (a) meta = RL.artistMeta({ name: a.name, type: a.type, area: a.area?.name }, { origin, id });

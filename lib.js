@@ -513,6 +513,13 @@
     return { title: `${plainText(row.title)} · a list on ${SITE}`, description: clip(plainText(row.description) || `${n} ${n === 1 ? "album" : "albums"}${by}. Ranked and shared on ${SITE}.`, 200),
       url: `${origin}/list/${id}`, image: (row.covers || []).find(Boolean) || null, imageAlt: `Cover of ${plainText(row.title)}`, type: "website" };
   }
+  // row from the public_profiles view (private profiles never appear there). Counts are only present when the person shows their ratings.
+  function profileMeta(row, { origin, username }) {
+    const shown = plainText(row.display_name), name = shown || `@${username}`, n = Number(row.rating_count) || 0, r = Number(row.review_count) || 0;
+    const facts = [n > 0 ? `${n} ${n === 1 ? "album" : "albums"} rated` : "", r > 0 ? `${r} ${r === 1 ? "review" : "reviews"}` : ""].filter(Boolean).join(", ");
+    return { title: `${shown ? `${shown} (@${username})` : `@${username}`} · ${SITE}`, description: clip(plainText(row.bio) || `${name} on ${SITE}${facts ? `: ${facts}` : ""}. Favorites, reviews and lists.`, 200),
+      url: `${origin}/u/${username}`, image: null, type: "profile" };
+  }
   function artistMeta(row, { origin, id }) {
     const bits = [row.type, row.area].filter(Boolean).join(", ");
     return { title: `${plainText(row.name)} · ${SITE}`, description: clip(`${plainText(row.name)}${bits ? ` (${bits})` : ""}. Albums, scores and what the community thinks on ${SITE}.`, 200), url: `${origin}/artist/${id}`, image: null, type: "profile" };
@@ -574,7 +581,7 @@
     return d ? `Sign-in didn't complete: ${d}` : "Sign-in didn't complete. Please try again.";
   }
 
-  root.RotationLib = { authReturnMessage, albumMeta, listMeta, artistMeta, routeMeta, injectMeta, STREAMING_SERVICES, streamingService, streamingSearchUrl, listenQuery, streamingFromUrl, sameArtistName, sameTitleName, stripBrackets, tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  root.RotationLib = { authReturnMessage, albumMeta, listMeta, artistMeta, profileMeta, routeMeta, injectMeta, STREAMING_SERVICES, streamingService, streamingSearchUrl, listenQuery, streamingFromUrl, sameArtistName, sameTitleName, stripBrackets, tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
 // api/search.js shares the same ranking code as the browser
 if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;

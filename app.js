@@ -982,9 +982,20 @@ async function pageSearch(term, f = {}, replace = false) {
    Views
    ========================================================================== */
 const view = () => $("#view");
+// Supabase answers at most 1000 rows per request and does not say when it cut the list short. This walks a query page by page (build() must return a
+// fresh, fully ordered query, ending in a unique column so pages never overlap or skip) until a short page says it is done.
+async function fetchAll(build, size = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += size) {
+    const { data, error } = await build().range(from, from + size - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if ((data || []).length < size) return { data: rows, error: null };
+  }
+}
 async function myRatings(fields = "score, standout_tracks, thoughts, updated_at, created_at, album:albums(id,title,artist,cover_url,genres,release_date)") {
   if (!sb || !user) return [];
-  const { data, error } = await sb.from("ratings").select(fields).order("score", { ascending: false }).order("updated_at", { ascending: false });
+  const { data, error } = await fetchAll(() => sb.from("ratings").select(fields).order("score", { ascending: false }).order("updated_at", { ascending: false }).order("id"));
   if (error) throw error;
   return (data || []).filter((r) => r.album);
 }
@@ -2550,7 +2561,12 @@ async function renderProfileEdit() {
     try {
       const tables = ["profiles", "ratings", "album_status", "profile_pins", "lists", "list_items", "follows", "review_likes", "notification_prefs"];
       const out = { exported_at: new Date().toISOString(), account: { id: user.id, email: user.email, created_at: user.created_at } };
-      for (const t of tables) { const { data, error } = await sb.from(t).select("*"); if (!error) out[t] = data || []; }
+      const order = { ratings: ["id"], album_status: ["album_id"], profile_pins: ["position"], lists: ["id"], list_items: ["list_id", "album_id"], follows: ["followee_id"], review_likes: ["rating_id"], profiles: ["user_id"], notification_prefs: ["user_id"] };
+      for (const t of tables) {
+        const { data, error } = await fetchAll(() => order[t].reduce((q, col) => q.order(col), sb.from(t).select("*")));
+        if (error) throw error;   // a file that silently leaves a table out would look complete
+        out[t] = data;
+      }
       const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
       const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `rotation-data-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);

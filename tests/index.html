@@ -222,6 +222,14 @@ test("injectMeta: replacement patterns in a title (a dollar-ampersand or dollar-
   ok(out.includes("Cash $&amp;amp; Carry $' $1"), "the title is kept as written (escaped), not expanded");
   ok(out.split("<main id=\"view\"></main>").length === 2, "the page is not duplicated by a replacement pattern");
 });
+test("profileMeta: name, bio or counts, canonical URL, no image, no private fields", () => {
+  const m = L.profileMeta({ username: "rego", display_name: "Logan R", bio: null, rating_count: 17, review_count: 1 }, { origin: "https://o", username: "rego" });
+  ok(m.title === "Logan R (@rego) · Rotation" && m.url === "https://o/u/rego" && m.image === null);
+  ok(/17 albums rated, 1 review/.test(m.description), m.description);
+  const bio = L.profileMeta({ username: "x_y", display_name: "", bio: "Record store lifer.", rating_count: null }, { origin: "https://o", username: "x_y" });
+  ok(bio.title === "@x_y · Rotation" && bio.description === "Record store lifer.", bio.title + " | " + bio.description);
+  ok(!/user_id|email/i.test(JSON.stringify(m)));
+});
 /* ---- streaming services ---- */
 test("streaming: every service has a working search URL for albums and tracks", () => {
   eq(L.STREAMING_SERVICES.map((s) => s.id), ["spotify", "apple", "youtube", "tidal", "amazon", "deezer", "pandora", "soundcloud", "bandcamp", "qobuz"]);

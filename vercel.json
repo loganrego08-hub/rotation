@@ -28,6 +28,7 @@
     { "source": "/album/:id", "destination": "/api/page?kind=album&id=:id" },
     { "source": "/list/:id", "destination": "/api/page?kind=list&id=:id" },
     { "source": "/artist/:id", "destination": "/api/page?kind=artist&id=:id" },
+    { "source": "/u/:username", "destination": "/api/page?kind=profile&username=:username" },
     { "source": "/((?!api/|fonts/|tests/|.*\\.[A-Za-z0-9]+$).*)", "destination": "/api/page?path=/$1" }
   ]
 }
