@@ -145,3 +145,14 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Grid children need `min-width: 0` / `minmax(0, 1fr)` to avoid overflow.
 - Commit with a short descriptive message and push to `main` to deploy.
 - Hobby (free) Vercel plan: personal, non-commercial use only.
+
+## Routing, public browsing and sign-in (v11 work)
+- Real path URLs via the History API (`here()`, `go()`, popstate, global click interception of `a[href^="/"]`); every `#/...` mention above is now `/...`
+  (e.g. `/album/:mbid`, `/lists/:tab`). Old `/#/path` links are rewritten to `/path` by a script in `<head>` (only `#/` hashes; auth callback hashes are left alone).
+  `vercel.json` rewrites page paths to `api/page.js`, which serves index.html with per-route `<title>`, description, canonical, Open Graph and Twitter tags
+  (album from `album_catalog` then MusicBrainz; lists only from `public_lists`; artists from MusicBrainz). `api/sitemap.js` = `/sitemap.xml`; `robots.txt` is static. Meta builders live in lib.js (`albumMeta`, `listMeta`, `artistMeta`, `routeMeta`, `injectMeta`).
+- Nobody is walled out: browsing is anonymous. Writes call `requireSignIn(selector, why)`, which stores `{path, selector, why, t}` in localStorage `rotation:intent` (30 min) and opens the dialog;
+  after sign-in (or the OAuth/magic-link round trip) `resumeIntent` navigates back and clicks the stored control. `schema.sql` v11 locks anon to SELECT on public tables/views only (apply it in the Supabase SQL editor; not applied automatically).
+- Sign-in methods: Google and Apple (`signInWithOAuth`), email magic link (`signInWithOtp`), email + password. `redirectTo` is `location.origin + "/"`. Failed returns (expired link, cancelled, provider off) are read from the URL by a script in index.html (`window.__authReturn`) and worded by `RL.authReturnMessage`.
+  Supabase dashboard must list the production URL and local dev URL(s) as redirect URLs, and Google/Apple providers must be enabled there.
+- Home for signed-out visitors shows a landing hero (`hero--landing`: value line, Create account / Browse albums) with Highest rated and Recently reviewed directly below; signed-in users get the normal hero, feed and recommendations.
