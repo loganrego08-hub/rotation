@@ -709,3 +709,35 @@ language sql stable set search_path = public, extensions as $$
   limit least(greatest(coalesce(lim, 8), 1), 25)
 $$;
 grant execute on function public.search_albums(text, int) to anon, authenticated;
+
+-- v11: public browsing audit and hardening (run in the Supabase SQL editor; safe to re-run)
+-- Audit result: RLS is on for every table and the ONLY anonymous policy is SELECT on albums; everything else is owner-only for signed-in users,
+-- and what other people may see goes through the public_* / aggregate views (no user ids or emails). Logged-out browsing already works.
+-- This migration is defence in depth: Supabase's default grants give the anonymous role (and signed-in role) far more table privileges than needed.
+-- Row-level security does NOT govern TRUNCATE, and simple views can be writable, so they are removed here.
+
+-- 1. Anonymous visitors: read albums and the public aggregate views, nothing else
+revoke all on all tables in schema public from anon;
+grant select on public.albums to anon;
+grant select on public.album_stats, public.album_rankings, public.album_catalog, public.album_activity, public.album_score_counts, public.recent_ratings,
+  public.album_reviews, public.public_profiles, public.public_pins, public.public_ratings, public.public_reviews, public.public_lists, public.public_list_items to anon;
+
+-- 2. Signed-in users: no TRUNCATE/TRIGGER/REFERENCES, and views are read-only (writes go to the base tables, under their owner-only policies)
+revoke truncate, trigger, references on all tables in schema public from authenticated;
+do $$ declare v record; begin
+  for v in select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'v' loop
+    execute format('revoke insert, update, delete, truncate, trigger, references on public.%I from authenticated, anon', v.relname);
+  end loop;
+end $$;
+-- my_notifications filters on auth.uid(), so it is for signed-in users only
+revoke select on public.my_notifications from anon;
+-- Tables created later get no anonymous access until a migration grants it on purpose
+alter default privileges in schema public revoke all on tables from anon;
+
+-- 3. Trigger functions are not API endpoints: remove EXECUTE from the API roles and pin their search_path
+do $$ declare f record; begin
+  for f in select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prorettype = 'trigger'::regtype loop
+    execute format('revoke execute on function %s from public, anon, authenticated', f.sig);
+    execute format('alter function %s set search_path = public', f.sig);
+  end loop;
+end $$;
