@@ -556,7 +556,7 @@
       image ? `<meta name="twitter:image" content="${attr(image)}">` : "",
     ].filter(Boolean);
     const stripped = html.replace(/<title>[\s\S]*?<\/title>\s*/gi, "").replace(/<meta\s+(?:name|property)="(?:description|robots|og:[^"]*|twitter:[^"]*)"[^>]*>\s*/gi, "").replace(/<link\s+rel="canonical"[^>]*>\s*/gi, "");
-    return stripped.replace(/<\/head>/i, `${tags.join("\n")}\n</head>`);
+    return stripped.replace(/<\/head>/i, () => `${tags.join("\n")}\n</head>`);   // a function, so "$&" or "$'" in a title is text, not a replacement pattern
   }
 
   /* ---------- Sign-in return errors ----------

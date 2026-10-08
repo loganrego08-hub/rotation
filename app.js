@@ -56,7 +56,7 @@ function fmtDate(d, style = "long") {
 const here = () => (location.pathname.replace(/(.)\/+$/, "$1") || "/") + location.search;
 function go(path, { replace = false } = {}) {
   const url = new URL(path, location.origin);
-  if (url.origin !== location.origin) { location.href = path; return; }
+  if (url.origin !== location.origin) { if (/^https?:$/.test(url.protocol)) location.href = url.href; return; }   // never javascript:, data: or similar
   const next = url.pathname + url.search + url.hash;
   if (next === location.pathname + location.search + location.hash) { route(); return; }
   history[replace ? "replaceState" : "pushState"](null, "", next);

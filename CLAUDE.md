@@ -161,3 +161,14 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   Supabase (Authentication > URL Configuration): Site URL `https://rotation-ten.vercel.app`; redirect URLs `https://rotation-ten.vercel.app/**` and `http://localhost:8123/**`.
 - `/privacy` (`renderPrivacy`) states what is stored and who sees it; keep it in step with the data the app actually collects. It is linked from the footer and listed in the sitemap.
 - Home for signed-out visitors shows a landing hero (`hero--landing`: value line, Create account / Browse albums) with Highest rated and Recently reviewed directly below; signed-in users get the normal hero, feed and recommendations.
+
+## Security notes (audit, October 2026; schema v12)
+- Every table has RLS; anonymous users can read only `albums` and the aggregate/public views (schema v11). v12 adds: albums need `https://` covers (max 500 chars) and short fields, one account can add at most 300 albums/hour
+  (`guard_albums`, log in `private.album_inserts`), `ratings.standout_tracks` is capped at 20 KB, and signed-in users have no direct write grants on notifications, reports, review_likes or follows (only the SECURITY DEFINER RPCs write them).
+- Known and accepted: album facts are first-writer-wins (any signed-in user can add an album for a MusicBrainz id before anyone else; `protect_album_facts` then freezes it). The real fix is an API route that fetches the facts from MusicBrainz
+  and inserts with the service key. Security-definer views and `related_by_ratings` (anon) are intentional and aggregate only.
+- Server limits: `api/search.js` answers 429 when more than 8 MusicBrainz calls are queued (the browser then falls back to MusicBrainz directly). Error bodies never carry upstream messages.
+- Headers (`vercel.json`): `base-uri`, `object-src`, `frame-ancestors`, `form-action` CSP, COOP same-origin, nosniff, frame deny. A full script CSP still needs the inline handlers (`onerror=` in `artwork()`, inline head scripts) moved out first.
+  The only third-party script (supabase-js 2.45.4 from jsdelivr) is pinned with an SRI hash; recompute it (`sha384`, base64) whenever the version changes.
+- `go()` only follows same-origin or http(s) URLs. All user text is escaped with `esc()` before it is put in HTML; `tests/xss.html` proves it (see tests/README.md). Use `esc()` for anything new.
+- Dashboard-only settings (cannot be set from code): minimum password length, leaked-password protection (Pro plan), CAPTCHA on sign-up, email confirmation (off, so sign-up reveals whether an email is registered and mass sign-ups are possible).

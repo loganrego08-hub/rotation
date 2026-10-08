@@ -217,6 +217,11 @@ test("injectMeta: replaces the shell's tags once, escapes values, keeps the rest
   ok(out.includes('name="robots" content="index, follow"') && L.injectMeta(SHELL, { title: "t", description: "d", url: "u", noindex: true }).includes("noindex"));
   ok(!L.injectMeta(SHELL, { title: "t", description: "d", url: "u" }).includes("og:image"), "no image tag when there is no image");
 });
+test("injectMeta: replacement patterns in a title (a dollar-ampersand or dollar-quote) stay literal text", () => {
+  const out = L.injectMeta(SHELL, { title: "Cash $&amp; Carry $' $1", description: "d", url: "u" });
+  ok(out.includes("Cash $&amp;amp; Carry $' $1"), "the title is kept as written (escaped), not expanded");
+  ok(out.split("<main id=\"view\"></main>").length === 2, "the page is not duplicated by a replacement pattern");
+});
 /* ---- streaming services ---- */
 test("streaming: every service has a working search URL for albums and tracks", () => {
   eq(L.STREAMING_SERVICES.map((s) => s.id), ["spotify", "apple", "youtube", "tidal", "amazon", "deezer", "pandora", "soundcloud", "bandcamp", "qobuz"]);

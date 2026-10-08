@@ -54,3 +54,14 @@ level only.
 - Layout shift (CLS) was measured in a browser on the home page, Explore and an album page at desktop width, and on the album page at 390 px: 0 after reserving the page height (it was 0.19 before, caused by the footer jumping). Re-measure with a `PerformanceObserver` for `layout-shift` after layout changes.
 - Color contrast of every design-token text/background pair was computed; all pass WCAG AA 4.5:1.
 - An automated check for missing accessible names, duplicate ids, heading levels and missing image text found nothing on about 20 signed-out pages and 8 signed-in screens (the signed-in ones rendered with stubbed data).
+
+## Security audit (October 2026)
+- `tests/xss.html?s=<path>[&in=1]` (script `tests/xss-prelude.js`) loads the real app with every Supabase, MusicBrainz and `/api` answer replaced by hostile strings
+  (`"><img onerror=...>`, `<svg onload=...>`, attribute-breaking cover URLs). Open it through the local server and call `window.__xssReport()` after a few seconds:
+  `fired`, `injectedHandlers` and `strayNodes` must all be 0. Last run: about 70 page loads (home, album with reviews, artist, public profile, list, compare, search, browse,
+  shelf, feed, notifications, settings, stats, year, plus URLs that themselves contain markup), signed in and out, zero hits.
+- Database attack tests were run as the `anon` and `authenticated` roles inside a rolled-back transaction (`set local role`, `request.jwt.claims`): user A cannot read, change, delete
+  or create rows for user B (ratings, profiles, lists, status, follows, notifications, reports); out-of-range scores, 2001-character reviews, oversized standout lists, duplicate ratings,
+  `javascript:`/`http:`/oversized album covers, an album flood past 300/hour, direct writes to notifications/reports/follows/review_likes, and trigger functions as RPC are all rejected;
+  follow_user and normal rating edits still work. Live checks with the public key: every private table answers 401 to anonymous reads and writes, a forged JWT is rejected, no secret-like strings in served files.
+- Not covered by tests: Supabase Auth's own rate limits and settings (dashboard only), and the deployed `api/delete-account` (needs `SUPABASE_SERVICE_ROLE_KEY`; it answers 501 until that is set).
