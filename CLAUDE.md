@@ -73,6 +73,11 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
 - Sources and rights: MusicBrainz metadata is CC0. Cover art is hot-linked from the Cover Art Archive and Apple for identification only, never downloaded,
   re-hosted or put into exported images. Apple's Search API terms limit artwork to promoting Apple store content, so treat Apple art as the riskiest
   source; Billboard genre charts are read from billboard.com pages, which may not be permitted by Billboard's terms. Both are flagged for the owner to decide.
+- Streaming service (Listen): each person picks a service (Settings at `#/settings`, the sign-up form, or the prompt when they first tap Listen). It is saved in Supabase auth user metadata (`streaming_service`,
+  no migration, works without a profile) and in localStorage `rotation:streaming` for signed-out visitors; the account's choice wins after sign-in, else the device's choice is uploaded (`syncStreamPref`).
+  The album page has a `Listen` button (inked, not vermilion) and a play icon on every song (`.track__listen`). Links start as the service's search page (always correct) and are upgraded to direct album/song links by
+  `api/listen.js`: Apple via the public iTunes lookup, Deezer via its public API, any service via the streaming links stored on the release in MusicBrainz, and Spotify via its Web API only if `SPOTIFY_CLIENT_ID` and
+  `SPOTIFY_CLIENT_SECRET` are set in Vercel. Odesli/song.link was tried and now needs an API key. Service list, search URLs and name matching live in lib.js (`STREAMING_SERVICES`, tested). Don't use `data-t` on listen links (it's the star hook).
 - Chart covers: `api/chart.js` matches Apple art by artist AND title (`sameArtist`/`sameTitle`; never "any album by this artist", which once put a single's cover on American Heartbreak). No confident match = no art.
   The app then fills the gap itself (`healCovers`/`resolveCover` in app.js): any card linking to `#/find/artist/title` with no picture is looked up on MusicBrainz + Cover Art Archive,
   the same source as the album page, one request at a time, remembered per session. Chart responses are edge-cached (6 h, plus a day while revalidating), so fixes to matching take up to that long to show.

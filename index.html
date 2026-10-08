@@ -72,6 +72,11 @@
       <input id="authPass" class="input" type="password" required minlength="6" autocomplete="current-password">
       <span class="field__hint">At least 6 characters</span>
     </label>
+    <label class="field" id="authServiceField" hidden>
+      <span class="field__label">Streaming service (optional)</span>
+      <select id="authService" class="select"></select>
+      <span class="field__hint">Listen buttons open albums and songs here. Change it any time in Settings.</span>
+    </label>
     <div><button type="button" class="btn btn--ghost btn--sm" id="authForgot">Forgot password?</button></div>
     <p id="authError" class="alert alert--error" role="alert" hidden></p>
     <div class="dialog__actions">

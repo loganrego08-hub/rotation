@@ -174,6 +174,7 @@ const ICONS = {
   flag: '<path d="M5 21V4M5 5h11l-2 4 2 4H5"/>',
   pin: '<path d="M12 17v5M8 3h8l-1 6 3 3H6l3-3z"/>',
   share: '<path d="M12 15V4M8 8l4-4 4 4M5 13v6h14v-6"/>',
+  play: '<path d="M8 5.5v13L18.5 12z"/>',
 };
 const icon = (name, cls = "icon") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -380,6 +381,7 @@ function renderAccount() {
       <a class="menu__item" role="menuitem" href="#/lists/yours">${icon("list")}Your lists</a>
       <a class="menu__item" role="menuitem" href="#/feed">${icon("spark")}Following</a>
       <a class="menu__item" role="menuitem" href="#/notifications">${icon("bell")}Notifications</a>
+      <a class="menu__item" role="menuitem" href="#/settings">${icon("note")}Settings</a>
       <button type="button" class="menu__item" role="menuitem" id="signOut">${icon("logout")}Sign out</button>
     </div>`;
   const btn = $("#acctBtn"), menu = $("#acctMenu");
@@ -389,6 +391,126 @@ function renderAccount() {
   document.addEventListener("click", (e) => { if (!e.target.closest(".nav__account")) close(); });
   menu.addEventListener("click", (e) => { if (e.target.closest("a")) close(); });
   $("#signOut").onclick = async () => { close(); await sb.auth.signOut(); toast("Signed out", "info"); };
+}
+/* ==========================================================================
+   Streaming service
+   The preferred service is saved on the account (Supabase user metadata, so it works without a profile) and on this device, so signed-out
+   visitors can pick one too. The account's choice wins after sign-in; if the account has none, the device's choice is saved to it.
+   Listen links are search URLs at first (always correct), then upgraded to direct album and song links from /api/listen when it finds them.
+   ========================================================================== */
+const STREAM_KEY = "rotation:streaming";
+const validService = (id) => (RL.streamingService(id) ? id : null);
+let streamPref = null;
+const readLocalService = () => { try { return validService(localStorage.getItem(STREAM_KEY)); } catch { return null; } };
+function loadStreamPref() { streamPref = validService(user?.user_metadata?.streaming_service) || readLocalService(); }
+const getStream = () => streamPref;
+const streamLabel = (id) => RL.streamingService(id)?.label || "";
+async function setStream(id) {
+  streamPref = validService(id);
+  try { streamPref ? localStorage.setItem(STREAM_KEY, streamPref) : localStorage.removeItem(STREAM_KEY); } catch {}
+  document.dispatchEvent(new CustomEvent("rotation:streaming"));
+  if (sb && user) {
+    const { error } = await sb.auth.updateUser({ data: { streaming_service: streamPref } });
+    if (error) { toast("Saved on this device, but not to your account. Try again later.", "error"); return false; }
+  }
+  return true;
+}
+async function syncStreamPref() {
+  const meta = validService(user?.user_metadata?.streaming_service), local = readLocalService();
+  if (meta) { streamPref = meta; try { localStorage.setItem(STREAM_KEY, meta); } catch {} }
+  else if (user && local) { streamPref = local; await sb.auth.updateUser({ data: { streaming_service: local } }).catch(() => {}); }
+}
+// The sign-up form's service picker
+$("#authService").innerHTML = `<option value="">Choose later</option>${RL.STREAMING_SERVICES.map((s) => `<option value="${s.id}">${esc(s.label)}</option>`).join("")}`;
+
+// Asks where the person listens. pick(id) runs inside the click that chose, so a tab opened from it isn't treated as a blocked popup.
+function chooseService(pick) {
+  let dlg = $("#svcDialog");
+  if (!dlg) { dlg = document.createElement("dialog"); dlg.id = "svcDialog"; dlg.className = "dialog"; dlg.setAttribute("aria-labelledby", "svcTitle"); document.body.appendChild(dlg); }
+  dlg.innerHTML = `<div class="dialog__body">
+    <div class="dialog__head"><h2 id="svcTitle" class="dialog__title">Where do you listen?</h2><button type="button" class="icon-btn" data-close aria-label="Close">${icon("close")}</button></div>
+    <p class="text-2">Pick your streaming service. Listen buttons open albums and songs there. You can change it any time in Settings.</p>
+    <div class="svcpick" role="group" aria-label="Streaming services">${RL.STREAMING_SERVICES.map((s) => `<button type="button" class="svc" data-svc="${s.id}">${esc(s.label)}</button>`).join("")}</div></div>`;
+  dlg.onclick = (e) => {
+    if (e.target === dlg || e.target.closest("[data-close]")) return dlg.close();
+    const b = e.target.closest("[data-svc]"); if (!b) return;
+    const id = b.dataset.svc;
+    try { pick?.(id); } finally { dlg.close(); }
+    setStream(id).then((ok) => { if (ok) toast(`Listen opens ${streamLabel(id)}`); });
+  };
+  dlg.showModal();
+}
+
+const listenMemo = new Map();
+function listenLookup(params) {
+  const key = params.toString();
+  if (!listenMemo.has(key)) listenMemo.set(key, fetch(`/api/listen?${key}`).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+  return listenMemo.get(key);
+}
+let listenPaint = null;
+// Album page: points the Listen button and every song's icon at the chosen service
+function wireListen(album) {
+  const page = $(".album2");
+  if (!page) return;
+  const albumQuery = RL.listenQuery(album.artist, album.title);
+  let seq = 0;
+  async function paint() {
+    if (!page.isConnected) return document.removeEventListener("rotation:streaming", paint);
+    const svc = getStream(), mine = ++seq, btn = $("#listenBtn"), note = $("#listenNote");
+    if (!btn) return;
+    $("span", btn).textContent = svc ? `Listen on ${streamLabel(svc)}` : "Listen";
+    btn.href = svc ? RL.streamingSearchUrl(svc, albumQuery) : "#/settings";
+    if (note) { note.hidden = !svc; const nm = $("[data-svc-name]", note); if (nm) nm.textContent = streamLabel(svc); }
+    $$(".track__listen").forEach((a) => {
+      const label = svc ? `Listen to ${a.dataset.track} on ${streamLabel(svc)}` : `Listen to ${a.dataset.track}`;
+      a.href = svc ? RL.streamingSearchUrl(svc, RL.listenQuery(album.artist, album.title, a.dataset.track), "track") : "#/settings";
+      a.setAttribute("aria-label", label); a.title = label;
+    });
+    if (!svc) return;
+    // Upgrade the search links to direct ones when they can be found
+    const p = new URLSearchParams({ service: svc, artist: album.artist, title: album.title, mbid: album.id });
+    const a = await listenLookup(p);
+    if (mine === seq && a?.direct) btn.href = a.url;
+    if (["apple", "deezer", "spotify"].includes(svc)) {
+      const tp = new URLSearchParams(p); tp.set("tracks", "1");
+      const t = await listenLookup(tp);
+      if (mine === seq && t?.tracks) $$(".track__listen").forEach((el) => { const u = t.tracks[RL.stripBrackets(el.dataset.track)]; if (u) el.href = u; });
+    }
+  }
+  if (listenPaint) document.removeEventListener("rotation:streaming", listenPaint);
+  listenPaint = paint;
+  document.addEventListener("rotation:streaming", paint);
+  // With no service chosen yet, tapping Listen asks first, then opens a search for that album or song in the service just picked
+  page.addEventListener("click", (e) => {
+    const link = e.target.closest(".listen-link");
+    if (!link || getStream()) return;
+    e.preventDefault();
+    const track = link.dataset.track;
+    chooseService((id) => window.open(RL.streamingSearchUrl(id, track ? RL.listenQuery(album.artist, album.title, track) : albumQuery, track ? "track" : "album"), "_blank", "noopener"));
+  });
+  paint();
+}
+
+// Settings > Streaming service
+function renderSettings() {
+  setPageMeta("Settings · Rotation", "Choose which streaming service Listen buttons open on Rotation.");
+  const cur = getStream() || "";
+  const options = [["", "Ask me each time"], ...RL.STREAMING_SERVICES.map((s) => [s.id, s.label])];
+  view().innerHTML = `<header class="page-head"><h1 class="t-page">Settings</h1><p class="t-lead">Choose where Listen buttons open.</p></header>
+    <section class="section" aria-labelledby="svc-h">
+      ${sectionHead("Streaming service", { sub: user ? "Saved to your account." : "Saved on this device. Sign in to keep it on every device." }).replace("<h2", '<h2 id="svc-h"')}
+      <fieldset class="svcset"><legend class="sr">Streaming service</legend>
+        <div class="svcpick svcpick--radio">${options.map(([id, label]) => `<label class="svc"><input type="radio" name="svc" value="${id}"${id === cur ? " checked" : ""}><span>${esc(label)}</span></label>`).join("")}</div>
+      </fieldset>
+      <p class="field__hint" id="svcStatus" role="status" aria-live="polite"></p>
+    </section>
+    ${user ? `<section class="section">${sectionHead("Account")}<div class="chips">${button(profile ? "Edit profile" : "Create profile", { href: "#/me/edit", iconName: "user" })}</div></section>` : ""}`;
+  $$("input[name=svc]").forEach((r) => r.addEventListener("change", async () => {
+    const id = r.value || null, status = $("#svcStatus");
+    status.textContent = "Saving…";
+    const ok = await setStream(id);
+    status.textContent = ok ? (id ? `Listen opens ${streamLabel(id)}.` : "Listen will ask each time.") : "Saved on this device only.";
+  }));
 }
 let signingUp = false, recovering = false;
 function showAuthMessage(text, kind = "error") { const err = $("#authError"); err.className = `alert alert--${kind}`; err.textContent = text; err.hidden = false; }
@@ -401,13 +523,15 @@ function setAuthMode(up) {
   $("#authToggle").hidden = false; $("#authEmailField").hidden = false; $("#authEmail").required = true;
   $("#authForgot").hidden = up;
   $("#authPass").autocomplete = up ? "new-password" : "current-password";
+  $("#authServiceField").hidden = !up;
+  if (up) $("#authService").value = getStream() || "";
 }
 // Arriving from a password-reset email: the person is signed in just long enough to choose a new password
 function openRecovery() {
   setAuthMode(false); recovering = true;
   $("#authTitle").textContent = "Choose a new password";
   $("#authSubmit").textContent = "Save new password";
-  $("#authToggle").hidden = true; $("#authForgot").hidden = true; $("#authEmailField").hidden = true; $("#authEmail").required = false;
+  $("#authToggle").hidden = true; $("#authForgot").hidden = true; $("#authEmailField").hidden = true; $("#authServiceField").hidden = true; $("#authEmail").required = false;
   $("#authPass").autocomplete = "new-password"; $("#authError").hidden = true;
   if (!$("#authDialog").open) $("#authDialog").showModal();
   $("#authPass").focus();
@@ -436,7 +560,10 @@ $("#authForm").addEventListener("submit", async (e) => {
     recovering = false; $("#authPass").value = ""; $("#authDialog").close(); toast("Password updated");
     return;
   }
-  const { data, error } = signingUp ? await sb.auth.signUp({ email, password }) : await sb.auth.signInWithPassword({ email, password });
+  // A streaming service picked while signing up is saved with the account (and on this device, so it applies at first sign-in)
+  const svc = signingUp ? validService($("#authService").value) : null;
+  if (svc) { streamPref = svc; try { localStorage.setItem(STREAM_KEY, svc); } catch {} }
+  const { data, error } = signingUp ? await sb.auth.signUp({ email, password, options: svc ? { data: { streaming_service: svc } } : undefined }) : await sb.auth.signInWithPassword({ email, password });
   submit.removeAttribute("aria-busy");
   if (error) return showAuthMessage(error.message);
   if (signingUp && !data.session) return showAuthMessage("Check your email to confirm your account, then sign in.", "warning");
@@ -1639,11 +1766,13 @@ async function renderAlbum(id) {
             ${genreLinks ? `<p class="ahero__genres" aria-label="Genres">${genreLinks}</p>` : ""}
             <div class="figures" id="heroFigures" aria-label="Scores">${heroFigures()}</div>
             <div class="album__actions">
+              <a class="btn btn--listen listen-link" id="listenBtn" href="${getStream() ? RL.streamingSearchUrl(getStream(), RL.listenQuery(album.artist, album.title)) : "#/settings"}" target="_blank" rel="noopener">${icon("play", "icon icon--play")}<span>${getStream() ? `Listen on ${esc(streamLabel(getStream()))}` : "Listen"}</span></a>
               ${button(S.mine ? "Edit your rating" : "Rate this album", { variant: "primary", id: "jumpRate", iconName: "star" })}
               ${button("Share", { id: "shareBtn", iconName: "share" })}
               <button type="button" class="btn" id="pinBtn" aria-pressed="${isPinned()}">${icon(isPinned() ? "check" : "pin")}<span>${isPinned() ? "Pinned to profile" : "Pin to profile"}</span></button>
               ${button("Add to list", { id: "listBtn", iconName: "list" })}
             </div>
+            <p class="listen__note t-meta" id="listenNote"${getStream() ? "" : " hidden"}>Opens in <span data-svc-name>${esc(streamLabel(getStream()))}</span>. <a class="textlink" href="#/settings">Change</a></p>
             <div id="statusWrap" class="status-wrap">${statusHTML()}</div>
           </div>
         </div>
@@ -1670,6 +1799,7 @@ async function renderAlbum(id) {
               <li class="track${S.standouts.has(t.title) ? " is-standout" : ""}">
                 <span class="track__pos">${esc(t.pos)}</span><span class="track__title">${esc(t.title)}</span>
                 <span class="track__len">${fmtLen(t.length)}</span>
+                <a class="icon-btn track__listen listen-link" href="#/settings" target="_blank" rel="noopener" data-track="${esc(t.title)}" aria-label="Listen to ${esc(t.title)}">${icon("play", "icon icon--play")}</a>
                 <button type="button" class="icon-btn" data-t="${esc(t.title)}" aria-pressed="${S.standouts.has(t.title)}" aria-label="Standout: ${esc(t.title)}">${icon("star")}</button>
               </li>`).join("")}</ol>`
               : emptyState({ iconName: "note", title: "No tracklist listed", body: "MusicBrainz doesn't have tracks for this album yet. You can still score it.", plain: true })}
@@ -1711,6 +1841,7 @@ async function renderAlbum(id) {
     </article>
     <div id="albumMore"></div>`;
   applyAlbumTint(album.cover_url);
+  wireListen(album);
 
   // Fall back to Apple artwork when the Cover Art Archive has none
   $(".album__art img")?.addEventListener("error", () => appleArt(album.artist, album.title).then((url) => {
@@ -1859,7 +1990,7 @@ async function renderAlbum(id) {
   $("#creditProfile").onchange = () => { paintHint(); markDirty(); };
   $("#thoughts").addEventListener("input", markDirty);
   $("#displayNameInput").addEventListener("input", markDirty);
-  $("#tracks")?.addEventListener("click", markDirty);
+  $("#tracks")?.addEventListener("click", (e) => { if (e.target.closest("[data-t]")) markDirty(); });   // only a star changes the draft, not Listen
   paintHint();
 
   $("#jumpRate").onclick = () => {
@@ -3343,6 +3474,7 @@ function routeInner() {
   if ((m = h.match(/^#\/compare\/([a-z0-9_]{3,20})(?:\/([a-z0-9_]{3,20}))?$/i))) return renderCompare(m[1].toLowerCase(), m[2]?.toLowerCase());
   if ((m = h.match(/^#\/u\/([a-z0-9_]{3,20})$/i))) return renderPublicProfile(m[1]);
   if ((m = h.match(/^#\/list\/([0-9a-f-]{36})$/i))) return renderList(m[1]);
+  if (h === "#/settings") return renderSettings();
   if (h === "#/me/edit") return renderProfileEdit();
   if ((m = h.match(/^#\/decade\/(\d{4})$/))) return renderDecade(+m[1]);
   if ((m = h.match(/^#\/lists(?:\/([a-z]+))?$/))) return renderLists(m[1]);
@@ -3374,13 +3506,15 @@ $("#tabbar").innerHTML = [["discover", "#/", "Home", "compass"], ["explore", "#/
   if (sb) {
     const { data } = await sb.auth.getSession();
     user = data.session?.user || null;
+    loadStreamPref();
     await loadProfile();
     sb.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") setTimeout(openRecovery, 0);
       const changed = (session?.user?.id || null) !== (user?.id || null);
       user = session?.user || null;
+      loadStreamPref();
       // Deferred: calling Supabase from inside this callback can deadlock the auth client
-      setTimeout(async () => { if (changed) await loadProfile(); renderAccount(); if (changed) route(); }, 0);
+      setTimeout(async () => { if (changed) { await loadProfile(); await syncStreamPref(); } renderAccount(); if (changed) route(); }, 0);
     });
   }
   renderAccount();
