@@ -784,3 +784,12 @@ revoke all on public.notifications from authenticated;
 revoke all on public.reports from authenticated;
 revoke insert, update, delete on public.review_likes from authenticated;
 revoke insert, update on public.follows from authenticated;
+-- v13: indexes for the queries the app already makes (safe to re-run; no data or behavior changes)
+-- follows is keyed (follower_id, followee_id), so "who follows X" (follower counts on every public profile) had no index
+create index if not exists follows_followee_idx on public.follows (followee_id);
+-- decade pages filter on release_date; related albums use genres && ...; artist pages and recommendations filter on artist
+create index if not exists albums_release_date_idx on public.albums (release_date);
+create index if not exists albums_artist_idx on public.albums (artist);
+create index if not exists albums_genres_gin on public.albums using gin (genres);
+-- a person's library and profile list ratings newest first
+create index if not exists ratings_user_updated_idx on public.ratings (user_id, updated_at desc);
