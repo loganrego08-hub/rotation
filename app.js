@@ -1366,37 +1366,90 @@ function renderSearch(term, f = {}) {
 
 /* ---------- Recommendations ----------
    Explainable rules, no machine learning. Each pick says which rule produced it, and nothing you've
-   already rated is ever suggested. Sources, in priority order, interleaved so no single rule dominates:
+   already rated is ever suggested. Sources, interleaved so no single rule dominates:
      1. listeners whose rating pattern is similar to yours scored it 8+ (needs 2+ similar listeners)
-     2. more albums by artists you rate 8+ on average
-     3. well-rated albums in genres you rate highly (two or more albums at 7+)
-     4. this week's Billboard albums in those genres
+     2. more albums by artists you rate highly, from Rotation's community catalog
+     3. the best-known albums by those artists, from MusicBrainz (the biggest source for a small catalog)
+     4. well-rated albums in genres you rate highly
+     5. this week's Billboard albums in those genres
+   Thin results are topped up to a full row with clearly labeled, NOT personalized picks (the community's favorites, then the Billboard 200).
+   Taste thresholds are strict (2+ albums per genre, artists averaging 8+) and relax to 1 album and 7+ only when the strict ones find nothing.
    With fewer than 3 ratings we don't pretend to know your taste: you get general discovery, labeled as such. */
-const REC_MIN_RATINGS = 3;
+const REC_MIN_RATINGS = 3, REC_ROW = 24, REC_FULL = 12;   // row size; below REC_FULL picks the row is topped up
+const REC_RULE_TEXT = { listeners: "listeners with similar taste", artist: "artists you rate highly", discog: "artists you rate highly", genre: "genres you rate highly", chart: "this week's charts" };
 async function buildRecs(rows) {
   const rated = rows.map((r) => ({ id: r.album.id, title: r.album.title, artist: r.album.artist }));
   const flat = rows.map((r) => ({ album_id: r.album.id, title: r.album.title, artist: r.album.artist, genres: r.album.genres || [], score: r.score }));
-  const taste = RL.tasteProfile(flat);
+  let taste = RL.tasteProfile(flat);
+  if (!taste.genres.length || !taste.artists.length) {
+    const loose = RL.tasteProfile(flat, { genreMin: 1, artistAvg: 7 });
+    taste = { genres: taste.genres.length ? taste.genres : loose.genres, artists: taste.artists.length ? taste.artists : loose.artists };
+  }
   const topGenres = taste.genres.slice(0, 3), topArtists = taste.artists.slice(0, 4);
   const cat = (r, why) => ({ id: r.album_id, title: r.title, artist: r.artist, art: r.cover_url, why });
-  const [sim, byArtist, byGenre, charts] = await Promise.all([
+  const [sim, byArtist, byGenre, charts, community, bb] = await Promise.all([
     sb.rpc("recs_from_similar_listeners", { p_limit: 12 }).then((r) => r.data || []).catch(() => []),
     topArtists.length ? sb.from("album_catalog").select("album_id, title, artist, cover_url, avg_score, rating_count").in("artist", topArtists.map((a) => a.name)).limit(40).then((r) => r.data || []).catch(() => []) : [],
     topGenres.length ? sb.from("album_catalog").select("album_id, title, artist, cover_url, genres, avg_score, rating_count, weighted_score").overlaps("genres", topGenres.map((g) => g.name)).gte("rating_count", 1)
       .order("weighted_score", { ascending: false }).limit(40).then((r) => r.data || []).catch(() => []) : [],
     Promise.all(topGenres.map((tg) => { const g = matchGenre(tg.name); return g ? genreChart(g).then((c) => c.items.map((x) => ({ ...x, genreName: g.name }))).catch(() => []) : []; })).then((x) => x.flat()),
+    communityStats().then((s) => s.filter((x) => x.rating_count >= MIN_RATINGS)).catch(() => []),
+    billboard("billboard-200").then((c) => c.items).catch(() => []),
   ]);
   const lists = {
     listeners: sim.map((r) => cat(r, `${r.similar_listeners} listeners with taste like yours scored it 8+`)),
     artist: byArtist.map((r) => { const a = taste.artists.find((x) => x.name === r.artist); return cat(r, `You rate ${r.artist} ${a?.avg ?? "highly"} on average`); }),
+    discog: [],   // filled by recsFromDiscographies once MusicBrainz answers
     genre: byGenre.map((r) => { const g = topGenres.find((x) => (r.genres || []).includes(x.name)); return cat(r, `You rate ${g?.name || "this genre"} highly (${plural(g?.n || 0, "album")}); the community averages ${r.avg_score}`); }),
     chart: charts.filter((x) => keep(x) && !/\b(EP|Single)\b/i.test(x.title)).map((x) => ({ title: x.title, artist: x.artist, art: x.art, why: `#${x.rank} in ${x.genreName} this week, a genre you rate highly` })),
+    // Not personalized, labeled as such, and only used to top up a thin row
+    community: community.map((s) => cat(s, `Community favorite: ${s.avg_score} from ${plural(s.rating_count, "rating")}`)),
+    popular: bb.filter((x) => keep(x) && !/\b(EP|Single)\b/i.test(x.title)).map((x) => ({ title: x.title, artist: x.artist, art: x.art, why: `#${x.rank} on the Billboard 200 right now` })),
   };
-  // Round-robin across rules, then drop anything already rated or duplicated
-  const order = ["listeners", "artist", "genre", "chart"], groups = [];
-  for (let i = 0; i < 6; i++) order.forEach((rule) => { if (lists[rule][i]) groups.push({ rule, items: [lists[rule][i]] }); });
-  const items = RL.mergeRecs(groups, rated, 18);
-  return { items, genres: topGenres.map((g) => g.name), rules: [...new Set(items.map((i) => i.rule))] };
+  return { lists, rated, artists: topArtists };
+}
+// Round-robin across the personalized rules, drop anything already rated or duplicated, then top up a thin row with the labeled fillers
+function mergeRecLists({ lists, rated }) {
+  const order = ["listeners", "artist", "discog", "genre", "chart"], groups = [];
+  for (let i = 0; i < 24; i++) order.forEach((rule) => { if (lists[rule][i]) groups.push({ rule, items: [lists[rule][i]] }); });
+  let items = RL.mergeRecs(groups, rated, REC_ROW);
+  const personalized = items.length;
+  if (items.length < REC_FULL) items = RL.mergeRecs([...items.map((it) => ({ rule: it.rule, items: [it] })), ...["community", "popular"].map((rule) => ({ rule, items: lists[rule] }))], rated, REC_FULL);
+  return { items, personalized, rules: [...new Set(items.map((i) => i.rule))] };
+}
+// The best-known albums by the artists you rate highly: MusicBrainz, ranked by how widely each was released and tagged (same signals as search)
+async function recsFromDiscographies(artists) {
+  const perArtist = [];
+  for (const a of artists) {
+    try {
+      const cands = (await candidatesFor("", { type: "album", artist: a.name }, { limit: 50 })).filter((c) => RL.sameArtistName(c.artist, a.name));
+      perArtist.push(RL.rankAlbums("", cands, {}, { typeChosen: true }).filter((r) => r.kind === "album" && !r.noisy).slice(0, 6)
+        .map((r) => ({ id: r.id, title: r.title, artist: r.artist, art: coverUrl(r.id, 250), why: `You rate ${a.name} ${a.avg} on average` })));
+    } catch {}
+  }
+  // Interleave the artists, so the row mixes them instead of listing one artist's whole catalog first
+  const out = [];
+  for (let i = 0; i < 6; i++) perArtist.forEach((list) => { if (list[i]) out.push(list[i]); });
+  return out;
+}
+const recsNote = (m) => {
+  if (!m.items.length) return "";
+  if (!m.personalized) return "Nothing matched your taste yet, so these are popular right now (labeled on each). Picks get more personal as you rate more albums.";
+  const from = [...new Set(m.rules.filter((r) => REC_RULE_TEXT[r]).map((r) => REC_RULE_TEXT[r]))].join(", ");
+  const extra = m.items.length - m.personalized;
+  return `Picked from ${from}.${extra ? ` ${plural(extra, "more pick")} ${extra === 1 ? "is" : "are"} popular right now rather than matched to you (labeled on each).` : ""} Albums you've rated are never shown.`;
+};// One flow for the home page and the stats page: calls onUpdate with the quick row first, then again with discographies added (or once, from cache)
+async function getRecs(ratings, sig, onUpdate) {
+  let cached; try { cached = JSON.parse(sessionStorage.getItem("recs7:" + sig) || "null"); } catch {}
+  if (cached) { onUpdate(cached); return cached; }
+  let built;
+  try { built = await buildRecs(ratings); } catch { const none = { items: [], personalized: 0, rules: [] }; onUpdate(none); return none; }
+  onUpdate(mergeRecLists(built));
+  built.lists.discog = await recsFromDiscographies(built.artists);
+  const final = mergeRecLists(built);
+  try { sessionStorage.setItem("recs7:" + sig, JSON.stringify(final)); } catch {}
+  onUpdate(final);
+  return final;
 }
 async function loadRecs() {
   if (!sb || !user) return;
@@ -1416,20 +1469,15 @@ async function loadRecs() {
   }
   $("#recWhy").textContent = "Matching genres, artists and similar listeners to what you rate highly…";
   const sig = user.id + ":" + ratings.map((r) => r.album.id + r.score).join(",");
-  let recs;
-  try { recs = JSON.parse(sessionStorage.getItem("recs6:" + sig) || "null"); } catch {}
-  if (!recs) {
-    try { recs = await buildRecs(ratings); } catch { recs = { items: [], genres: [], rules: [] }; }
-    try { sessionStorage.setItem("recs6:" + sig, JSON.stringify(recs)); } catch {}
-  }
-  if (!el.isConnected) return;
-  const RULE_TEXT = { listeners: "listeners with similar taste", artist: "artists you rate highly", genre: "genres you rate highly", chart: "this week's charts" };
-  $("#recWhy").textContent = recs.items.length ? `Picked from ${recs.rules.map((r) => RULE_TEXT[r]).join(", ")}. Albums you've rated are never shown.` : "";
-  el.innerHTML = recs.items.length ? recs.items.map((it) => albumCard(it)).join("")
-    : emptyState({ title: "No new picks right now", body: "You've rated everything we'd suggest from your genres and artists. Try Surprise me or browse hidden gems.", compact: true,
-        actions: button("Surprise me", { variant: "primary", href: "#/surprise", iconName: "spark" }) });
+  const paint = (m) => {
+    if (!el.isConnected) return;
+    $("#recWhy").textContent = recsNote(m);
+    el.innerHTML = m.items.length ? m.items.map((it) => albumCard(it)).join("")
+      : emptyState({ title: "No new picks right now", body: "You've rated everything we'd suggest from your genres and artists. Try Surprise me or browse hidden gems.", compact: true,
+          actions: button("Surprise me", { variant: "primary", href: "#/surprise", iconName: "spark" }) });
+  };
+  await getRecs(ratings, sig, paint);
 }
-
 /* ---------- Genre chart ---------- */
 async function renderGenre(slug) {
   const g = GENRES.find((x) => x.slug === slug);
@@ -3406,12 +3454,12 @@ async function renderStats(sampleMode) {
   }
   why.textContent = "Matching genres, artists and similar listeners to what you rate highly…";
   const sig = user.id + ":" + ratings.map((r) => r.album.id + r.score).join(",");
-  let picks; try { picks = JSON.parse(sessionStorage.getItem("recs6:" + sig) || "null"); } catch {}
-  if (!picks) { try { picks = await buildRecs(ratings); } catch { picks = { items: [], rules: [] }; } try { sessionStorage.setItem("recs6:" + sig, JSON.stringify(picks)); } catch {} }
-  if (!recs.isConnected) return;
-  why.textContent = picks.items.length ? "Albums you've rated are never shown." : "";
-  recs.innerHTML = picks.items.length ? picks.items.map((it) => albumCard(it)).join("")
-    : emptyState({ title: "No new picks right now", body: "Try Surprise me or browse hidden gems.", compact: true, actions: button("Surprise me", { variant: "primary", href: "#/surprise", iconName: "spark" }) });
+  await getRecs(ratings, sig, (picks) => {
+    if (!recs.isConnected) return;
+    why.textContent = recsNote(picks);
+    recs.innerHTML = picks.items.length ? picks.items.map((it) => albumCard(it)).join("")
+      : emptyState({ title: "No new picks right now", body: "Try Surprise me or browse hidden gems.", compact: true, actions: button("Surprise me", { variant: "primary", href: "#/surprise", iconName: "spark" }) });
+  });
 }
 
 /* ==========================================================================

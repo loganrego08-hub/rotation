@@ -65,8 +65,10 @@ Live: https://rotation-ten.vercel.app (Vercel auto-deploys every push to `main`)
   engine and sessionStorage cache as the home page). Pure logic is `RL.statsOf` / `heatmapOf` / `heatLevel` (tested). Charts are hand-rolled SVG/CSS: no chart library,
   no React/Tailwind (the app has no build step). `#/stats/sample` is a clearly labeled demo built from fake rows (`sampleRows`, `SAMPLE_RECS`); it is the only place
   made-up data may appear, and the page must say so. Signed-out visitors to `#/stats` see the sample.
-- Recommendations (`buildRecs`): explainable rules (similar listeners, artists, genres, charts), never includes rated albums; under 3 ratings it shows
-  general discovery labeled as such. `recs_from_similar_listeners` (schema v9) returns aggregates only, needs 2+ similar listeners.
+- Recommendations (`buildRecs` + `mergeRecLists` + `getRecs`, shared by the home page and the stats page; cache key `recs7:`): explainable rules interleaved round-robin: similar listeners (schema v9 `recs_from_similar_listeners`, aggregates only, 2+ people),
+  Rotation-catalog albums by artists you rate highly, the best-known albums by those artists from MusicBrainz (`recsFromDiscographies`, artists interleaved, ranked by popularity), community albums in your genres, and this week's Billboard genre charts.
+  Never includes rated albums. Taste is strict (2+ albums per genre, artists averaging 8+) and relaxes (1 album, 7+) only when strict finds nothing (`RL.tasteProfile` options). A row under `REC_FULL` picks is topped up with labeled NOT-personalized
+  picks (community favorites, then the Billboard 200) and the note under the heading says so; with zero personalized picks it says nothing matched yet. The row shows quickly from the fast sources, then grows when MusicBrainz answers. Under 3 ratings: general discovery, labeled.
 - Quality rules: every page gets a title + description via `setPageMeta` (hash URLs mean non-script crawlers only see index.html defaults; real SEO
   would need path routing plus server-rendered pages, a bigger change), a top-level h1 (a MutationObserver adds a hidden one when missing), and an
   error boundary (`route` wraps `routeInner`). Touch targets are at least 44px on touch devices. The album page stacks below 960px.

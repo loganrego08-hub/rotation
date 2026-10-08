@@ -173,7 +173,8 @@
     return out;
   }
   // Genres and artists a person rates highly: 7 or higher, weighted by how high. Needs repeat evidence.
-  function tasteProfile(rows) {
+  // Defaults are strict (2+ albums per genre, artists averaging 8+). Callers with thin data can relax them: { genreMin: 1, artistAvg: 7 }.
+  function tasteProfile(rows, { genreMin = 2, artistAvg = 8 } = {}) {
     const liked = rows.filter((r) => r.score >= 7);
     const g = new Map(), a = new Map();
     liked.forEach((r) => {
@@ -181,7 +182,7 @@
       const x = a.get(r.artist) || { name: r.artist, n: 0, sum: 0 }; x.n++; x.sum += r.score; a.set(r.artist, x);
     });
     const rank = (m, min) => [...m.values()].filter((x) => x.n >= min).sort((p, q) => q.sum - p.sum).map((x) => ({ name: x.name, n: x.n, avg: round1(x.sum / x.n) }));
-    return { genres: rank(g, 2), artists: rank(a, 1).filter((x) => x.avg >= 8) };
+    return { genres: rank(g, genreMin), artists: rank(a, 1).filter((x) => x.avg >= artistAvg) };
   }
 
   /* ---------- Search and album labels ---------- */
