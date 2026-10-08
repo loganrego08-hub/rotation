@@ -1447,3 +1447,15 @@ main { min-height: 100vh; min-height: 100svh; }
   .track__title { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
   .track::after { display: none; }
 }
+
+
+/* ---- Sign-in dialog providers, magic link, and the signed-out landing hero ---- */
+.btn--lg { height: 48px; padding: 0 var(--s-5); font-size: var(--fs-md); }
+.landing__cta { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-block: var(--s-4) var(--s-5); }
+.landing__cta .btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.auth-providers { display: grid; gap: var(--s-2); }
+.auth-providers .btn, .auth-magic .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; }
+.auth-or { display: flex; align-items: center; gap: var(--s-3); margin: 0; color: var(--text-2); }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.auth-magic { display: grid; gap: var(--s-1); }
+@media (max-width: 480px) { .landing__cta .btn { flex: 1 1 100%; } }

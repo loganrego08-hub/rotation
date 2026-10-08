@@ -175,6 +175,17 @@ test("tasteProfile: strict by default, relaxable for people with few ratings", (
   const loose = L.tasteProfile(rows, { genreMin: 1, artistAvg: 7 });
   eq(loose.genres.map((g) => g.name), ["rock", "jazz"], "a single album at 7+ counts when relaxed, ranked by score"); eq(loose.artists.map((a) => a.name), ["X", "Y"], "artists averaging 7+; the 5 never counts");
 });
+/* ---- sign-in return errors ---- */
+test("authReturnMessage: clear messages for cancelled, expired, disabled and duplicate sign-ins", () => {
+  const m = L.authReturnMessage;
+  eq(m(null), null); eq(m({}), null);
+  ok(m({ error: "access_denied", code: "otp_expired", description: "Email link is invalid or has expired" }).startsWith("That sign-in link has expired"), "expired magic link beats access_denied");
+  ok(m({ error: "access_denied", description: "The user denied access" }).startsWith("Sign-in was cancelled"), "cancelled OAuth");
+  ok(m({ code: "provider_disabled", description: "Unsupported provider: provider is not enabled" }).includes("isn't available yet"));
+  ok(m({ code: "identity_already_exists" }).includes("already has an account"));
+  eq(m({ description: "Something+odd+happened" }), "Sign-in didn't complete: Something odd happened"); eq(m({ error: "server_error" }), "Sign-in didn't complete. Please try again.");
+});
+
 /* ---- share previews ---- */
 const SHELL = '<!doctype html><html><head><meta charset="utf-8"><title>Rotation</title>\n<meta name="description" content="old">\n<meta property="og:title" content="old">\n<meta property="og:image" content="old.png">\n<meta name="twitter:card" content="summary">\n<link rel="canonical" href="https://old/">\n</head><body><main id="view"></main></body></html>';
 const count = (s, re) => (s.match(re) || []).length;

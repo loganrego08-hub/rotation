@@ -558,7 +558,22 @@
     return stripped.replace(/<\/head>/i, `${tags.join("\n")}\n</head>`);
   }
 
-  root.RotationLib = { albumMeta, listMeta, artistMeta, routeMeta, injectMeta, STREAMING_SERVICES, streamingService, streamingSearchUrl, listenQuery, streamingFromUrl, sameArtistName, sameTitleName, stripBrackets, tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  /* ---------- Sign-in return errors ----------
+     After Google/Apple sign-in or a magic link, Supabase sends the person back to the site and puts any failure in the URL
+     (error, error_code, error_description). This turns that into one clear sentence. Expired is checked first because an expired
+     magic link arrives as error=access_denied AND error_code=otp_expired, and "denied" would be the wrong message for it. */
+  function authReturnMessage(r) {
+    if (!r || !(r.error || r.code || r.description)) return null;
+    const text = `${r.code || ""} ${r.error || ""} ${r.description || ""}`.replace(/\+/g, " ").toLowerCase();
+    if (/otp_expired|expired|already used|invalid or has expired/.test(text)) return "That sign-in link has expired or was already used. Request a new one.";
+    if (/provider.*(not enabled|disabled)|unsupported provider|provider_disabled/.test(text)) return "That sign-in method isn't available yet.";
+    if (/identity_already_exists|already registered|already (has|exists)|email_exists/.test(text)) return "That email already has an account. Sign in with your password, or with the method you used before.";
+    if (/access_denied|cancel|user_denied|denied/.test(text)) return "Sign-in was cancelled. You can try again any time.";
+    const d = String(r.description || "").replace(/\+/g, " ").trim();
+    return d ? `Sign-in didn't complete: ${d}` : "Sign-in didn't complete. Please try again.";
+  }
+
+  root.RotationLib = { authReturnMessage, albumMeta, listMeta, artistMeta, routeMeta, injectMeta, STREAMING_SERVICES, streamingService, streamingSearchUrl, listenQuery, streamingFromUrl, sameArtistName, sameTitleName, stripBrackets, tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
 // api/search.js shares the same ranking code as the browser
 if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;

@@ -528,7 +528,43 @@ function renderSettings() {
 }
 let signingUp = false, recovering = false;
 function showAuthMessage(text, kind = "error") { const err = $("#authError"); err.className = `alert alert--${kind}`; err.textContent = text; err.hidden = false; }
-function openAuth() { setAuthMode(false); $("#authError").hidden = true; $("#authDialog").showModal(); $("#authEmail").focus(); }
+/* ---------- Signing in: what you were doing is remembered ----------
+   A write action (rate, star, list, follow) by someone signed out opens the sign-in dialog and stores what they were about to do: the page and the control
+   (a CSS selector). Once they are signed in, by any method (even Google or Apple, which leave the site and come back), the page is reopened and that control
+   is clicked for them. Stored for 30 minutes in localStorage, cleared when the dialog is dismissed. */
+const INTENT_KEY = "rotation:intent", INTENT_TTL = 30 * 60 * 1000;
+const clearIntent = () => { try { localStorage.removeItem(INTENT_KEY); } catch {} };
+const saveIntent = (it) => { try { it ? localStorage.setItem(INTENT_KEY, JSON.stringify({ ...it, t: Date.now() })) : localStorage.removeItem(INTENT_KEY); } catch {} };
+const readIntent = () => { try { return JSON.parse(localStorage.getItem(INTENT_KEY) || "null"); } catch { return null; } };
+// For a write action: returns true when the person has to sign in first (and opens the dialog saying why)
+function requireSignIn(selector, why) {
+  if (!sb) { toast("Signing in is offline right now", "error"); return true; }
+  if (user) return false;
+  openAuth({ why, intent: { path: here(), selector: selector || null, why } });
+  return true;
+}
+async function resumeIntent() {
+  const it = readIntent();
+  if (!it) return;
+  clearIntent();
+  if (!user || Date.now() - it.t > INTENT_TTL) return;
+  if (it.path && it.path !== here()) go(it.path);   // Google and Apple return to the home page; go back to where they were
+  if (!it.selector) return;
+  for (let i = 0; i < 100; i++) {   // up to 10 seconds for the page to finish drawing
+    const el = $(it.selector);
+    if (el && el.getAttribute("aria-busy") !== "true" && !el.disabled) { toast(`Signed in. Picking up where you left off: ${it.why}.`); el.click(); return; }
+    await sleep(100);
+  }
+}
+function openAuth(opts) {
+  const o = opts && typeof opts === "object" && !(opts instanceof Event) ? opts : {};
+  setAuthMode(!!o.signUp); $("#authError").hidden = true;
+  const why = $("#authWhy");
+  why.hidden = !o.why; why.textContent = o.why ? `Sign in to ${o.why}. We'll pick up where you left off.` : "";
+  saveIntent(o.intent || null);
+  $("#authDialog").showModal(); $("#authEmail").focus();
+}
+const authExtras = (show) => ["authProviders", "authOr", "authMagicRow", "authIntro"].forEach((id) => { $("#" + id).hidden = !show; });
 function setAuthMode(up) {
   signingUp = up; recovering = false;
   $("#authTitle").textContent = up ? "Create your account" : "Sign in";
@@ -536,6 +572,7 @@ function setAuthMode(up) {
   $("#authToggle").textContent = up ? "I already have an account" : "Create an account instead";
   $("#authToggle").hidden = false; $("#authEmailField").hidden = false; $("#authEmail").required = true;
   $("#authForgot").hidden = up;
+  authExtras(true);
   $("#authPass").autocomplete = up ? "new-password" : "current-password";
   $("#authServiceField").hidden = !up;
   if (up) $("#authService").value = getStream() || "";
@@ -546,12 +583,37 @@ function openRecovery() {
   $("#authTitle").textContent = "Choose a new password";
   $("#authSubmit").textContent = "Save new password";
   $("#authToggle").hidden = true; $("#authForgot").hidden = true; $("#authEmailField").hidden = true; $("#authServiceField").hidden = true; $("#authEmail").required = false;
-  $("#authPass").autocomplete = "new-password"; $("#authError").hidden = true;
+  $("#authPass").autocomplete = "new-password"; $("#authError").hidden = true; authExtras(false); $("#authWhy").hidden = true;
   if (!$("#authDialog").open) $("#authDialog").showModal();
   $("#authPass").focus();
 }
 $("#authToggle").onclick = () => setAuthMode(!signingUp);
 $("#authClose").onclick = () => $("#authDialog").close();
+// Dismissing the dialog without signing in forgets the pending action (a short delay lets a successful sign-in finish first)
+$("#authDialog").addEventListener("close", () => setTimeout(() => { if (!user) clearIntent(); }, 800));
+
+// Google and Apple: the browser leaves for the provider and comes back to the home page; the remembered intent then returns the person to where they were
+async function signInWith(provider) {
+  if (!sb) return showAuthMessage("Signing in is offline right now.");
+  if (!readIntent()) saveIntent({ path: here(), selector: null });
+  const btn = $(provider === "google" ? "#authGoogle" : "#authApple"); btn.setAttribute("aria-busy", "true");
+  const { error } = await sb.auth.signInWithOAuth({ provider, options: { redirectTo: location.origin + "/" } });
+  btn.removeAttribute("aria-busy");
+  if (error) showAuthMessage(RL.authReturnMessage({ code: error.code, description: error.message }) || error.message);
+}
+$("#authGoogle").onclick = () => signInWith("google");
+$("#authApple").onclick = () => signInWith("apple");
+// Email link: no password; works for new and existing accounts
+$("#authMagic").onclick = async () => {
+  const email = $("#authEmail").value.trim();
+  if (!email || !$("#authEmail").checkValidity()) { showAuthMessage("Enter your email above, then choose Email me a sign-in link."); $("#authEmail").focus(); return; }
+  if (!readIntent()) saveIntent({ path: here(), selector: null });
+  const btn = $("#authMagic"); btn.setAttribute("aria-busy", "true");
+  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + "/", shouldCreateUser: true } });
+  btn.removeAttribute("aria-busy");
+  if (error) return showAuthMessage(/rate|limit|seconds/i.test(error.message) ? "Please wait a minute before asking for another link." : error.message);
+  showAuthMessage(`Check your email. We sent a sign-in link to ${email}. It works once, so open it on this device if you can.`, "success");
+};
 $("#authForgot").onclick = async () => {
   const email = $("#authEmail").value.trim();
   if (!email) { showAuthMessage("Enter your email above, then choose Forgot password."); $("#authEmail").focus(); return; }
@@ -1185,14 +1247,26 @@ const decadeGrid = () => `<div class="decades">${DECADES.map((d) =>
 async function renderHome() {
   document.title = "Rotation";
   ["m:stats", "m:album_activity", "m:recent_ratings"].forEach((k) => cache.delete(k));
-  view().innerHTML = `
+  // Signed-out visitors get a landing hero (what this is, and two ways in) with live content right underneath; signed-in people go straight to their home.
+  const out = !user;
+  const topSec = homeSection("sec-top", "Highest rated", "", { link: "/lists/community", linkLabel: "Full list" });
+  const recentSec = homeSection("sec-recent", "Recently reviewed", "", { link: "/search", linkLabel: "Find albums" });
+  const heroTop = out ? `
+    <section class="hero hero--landing" aria-labelledby="landing-h">
+      <div class="hero__copy">
+        <h1 class="t-hero" id="landing-h">Keep score on every album you hear.</h1>
+        <p class="t-lead">Score albums out of 10, star standout tracks, keep lists, and see where everyone else lands.</p>
+        <div class="landing__cta"><button type="button" class="btn btn--primary btn--lg" id="heroCreate">Create account</button><a class="btn btn--lg" href="/explore">Browse albums</a></div>
+        ${searchForm({ mode: "menu", cls: "search--hero" })}
+      </div>` : `
     <section class="hero">
       <div class="hero__copy">
         <h1 class="t-hero">What’s in your rotation?</h1>
         <p class="t-lead">Score albums out of 10. Star the tracks that hit. See where everyone else lands.</p>
         ${searchForm({ mode: "menu", cls: "search--hero" })}
         <nav class="chips" aria-label="Browse genres">${GENRES.slice(0, 5).map((g) => `<a class="chip" href="/genre/${g.slug}">${esc(g.name)}</a>`).join("")}<a class="chip" href="/explore">More</a><a class="chip" href="/surprise">Surprise me</a></nav>
-      </div>
+      </div>`;
+  view().innerHTML = `${heroTop}
       <div class="hero__side"><div class="hero__mosaic" id="mosaic" aria-label="Top albums on this week's Billboard 200"></div><p class="hero__caption t-meta" id="mosaicCap"></p></div>
     </section>
     <section class="section lead" id="leadFeature" hidden aria-labelledby="lead-h"></section>
@@ -1204,9 +1278,10 @@ async function renderHome() {
       ${sectionHead("Recommended for you", { sub: "", id: "recWhy" })}
       <div class="row" id="recs">${skCards(6)}</div>
     </section>
+    ${out ? topSec + recentSec : ""}
     ${homeSection("sec-trending", "Trending this week", "", { link: "/lists/charts", linkLabel: "Charts" })}
     ${homeSection("sec-new", "New releases", "", { link: "/lists/charts", linkLabel: "Charts" })}
-    ${homeSection("sec-top", "Highest rated", "", { link: "/lists/community", linkLabel: "Full list" })}
+    ${out ? "" : topSec}
     ${homeSection("sec-radar", "Hidden gems", "", { link: browseHref({ min: "8", count: String(MIN_RATINGS), few: "1", sort: "rated" }), linkLabel: "Browse all" })}
     ${homeSection("sec-divisive", "Divisive albums", "", { link: browseHref({ divisive: "1", sort: "divisive" }), linkLabel: "Browse all" })}
     <section class="section" id="sec-genres" aria-labelledby="sec-genres-h">
@@ -1218,19 +1293,19 @@ async function renderHome() {
       ${decadeIndex()}
     </section>
     ${homeSection("sec-gems", "Beyond the Billboard 200", "", { link: "/explore", linkLabel: "Explore" })}
-    ${homeSection("sec-recent", "Recently reviewed", "", { link: "/search", linkLabel: "Find albums" })}`;
+    ${out ? "" : recentSec}`;
   loadHeroMosaic();
   loadLead();
-  loadHomeFeed();
-  loadRecs();
+  if (!out) { loadHomeFeed(); loadRecs(); }
+  $("#heroCreate")?.addEventListener("click", () => openAuth({ signUp: true }));
   runSection("sec-trending", loadTrending);
   runSection("sec-new", loadNewReleases, { defer: true });
-  runSection("sec-top", loadHighest, { defer: true });
+  runSection("sec-top", loadHighest, { defer: !out });
   runSection("sec-radar", loadHiddenGems, { defer: true, big: true });
   runSection("sec-divisive", loadDivisive, { defer: true });
   lazy($("#sec-genres"), () => fillGenreIndex($("#sec-genres")));
   runSection("sec-gems", loadGems, { defer: true });
-  runSection("sec-recent", loadRecent, { defer: true });
+  runSection("sec-recent", loadRecent, { defer: !out });
 }
 
 /* ---------- Explore: genres and decades ---------- */
@@ -1962,14 +2037,10 @@ async function renderAlbum(id) {
     if (!err) S.albumSaved = true;
     return err;
   };
-  const needSignIn = () => {
-    if (!sb) { toast("Ratings are offline right now", "error"); return true; }
-    if (!user) { openAuth(); return true; }
-    return false;
-  };
+  const needSignIn = (selector, why) => requireSignIn(selector, why);
   // Tapping a score saves it right away. Only the score is sent, so an existing review is never touched.
   async function submitScore(n) {
-    if (needSignIn() || S.busy || n === S.score) return;
+    if (needSignIn(`#picker [data-s="${n}"]`, "rate this album") || S.busy || n === S.score) return;
     const prev = S.score;
     S.score = n; S.busy = true; paintRating(); announce("Saving…");
     let error = await ensureAlbum();
@@ -1984,7 +2055,7 @@ async function renderAlbum(id) {
   // Listening status. Listened, Want to listen and Favorite never contradict: the database enforces the same rules.
   async function applyStatus(key) {
     if (key === "rated") { $("#jumpRate").click(); return; }
-    if (needSignIn() || S.statusBusy) return;
+    if (needSignIn(`[data-st="${key}"]`, "update your listening status") || S.statusBusy) return;
     const st = { ...S.status }, locked = !!S.mine || st.favorite;
     if ((key === "listened" || key === "want") && locked) return toast(S.mine ? "Rated albums count as listened." : "Favorites count as listened.", "info");
     if (key === "favorite") { st.favorite = !st.favorite; if (st.favorite) st.listened = true; }
@@ -2025,7 +2096,7 @@ async function renderAlbum(id) {
     if (e.target.closest("#revShowMore")) { R.shown += 10; paintReviews(); return; }
     const like = e.target.closest("[data-like]"), rep = e.target.closest("[data-report]");
     if (rep) return openReportDialog({ type: "review", id: rep.dataset.report, label: "this review" });
-    if (!like || needSignIn() || like.getAttribute("aria-busy") === "true") return;
+    if (!like || needSignIn(`[data-like="${like.dataset.like}"]`, "like this review") || like.getAttribute("aria-busy") === "true") return;
     const r = reviews.find((x) => x.id === like.dataset.like); if (!r) return;
     like.setAttribute("aria-busy", "true");
     const { data, error } = await sb.rpc("toggle_review_like", { p_rating: r.id });
@@ -2059,9 +2130,9 @@ async function renderAlbum(id) {
     $("#yourRating").scrollIntoView({ block: "start" });
     ($("#picker button[aria-pressed='true']") || $("#picker button")).focus({ preventScroll: true });
   };
-  $("#listBtn").onclick = () => { if (!needSignIn()) openListPicker(album, ensureAlbum); };
+  $("#listBtn").onclick = () => { if (!needSignIn("#listBtn", "add this album to a list")) openListPicker(album, ensureAlbum); };
   $("#pinBtn").onclick = async () => {
-    if (needSignIn()) return;
+    if (needSignIn("#pinBtn", "pin this album to your profile")) return;
     const btn = $("#pinBtn"); btn.setAttribute("aria-busy", "true");
     let error = null;
     if (isPinned()) {
@@ -2114,7 +2185,7 @@ async function renderAlbum(id) {
   });
 
   $("#save").onclick = async () => {
-    if (needSignIn()) return;
+    if (needSignIn("#save", "save your review")) return;
     if (!S.score) return toast("Tap a score from 1 to 10 first", "info");
     const btn = $("#save"); btn.setAttribute("aria-busy", "true");
     const body = $("#thoughts").value.trim() || null;
@@ -2390,7 +2461,7 @@ async function renderPublicProfile(username) {
   $("#reportProfile")?.addEventListener("click", () => openReportDialog({ type: "profile", id: username, label: `@${username}` }));
   const fb = $("#followBtn");
   if (fb) fb.onclick = async () => {
-    if (!user) return openAuth();
+    if (requireSignIn("#followBtn", "follow this person")) return;
     fb.setAttribute("aria-busy", "true");
     const { error } = await sb.rpc(following ? "unfollow_user" : "follow_user", { p_username: username });
     fb.removeAttribute("aria-busy");
@@ -2874,7 +2945,7 @@ async function renderNotifications() {
 /* ---------- Reports ---------- */
 function openReportDialog({ type, id, label }) {
   if (!sb) return toast("Reporting is offline right now", "error");
-  if (!user) return openAuth();
+  if (requireSignIn(null, "report this")) return;
   const dlg = document.createElement("dialog");
   dlg.className = "dialog";
   dlg.setAttribute("aria-labelledby", "rpTitle");
@@ -3586,11 +3657,16 @@ $("#tabbar").innerHTML = [["discover", "/", "Home", "compass"], ["explore", "/ex
       user = session?.user || null;
       loadStreamPref();
       // Deferred: calling Supabase from inside this callback can deadlock the auth client
-      setTimeout(async () => { if (changed) { await loadProfile(); await syncStreamPref(); } renderAccount(); if (changed) route(); }, 0);
+      setTimeout(async () => { if (changed) { await loadProfile(); await syncStreamPref(); } renderAccount(); if (changed) { route(); if (user) resumeIntent(); } }, 0);
     });
   }
   renderAccount();
   route();
+  // Came back from Google, Apple or an email link: show why it failed, or pick up what the person was doing
+  const failure = window.__authReturn && RL.authReturnMessage(window.__authReturn);
+  window.__authReturn = null;
+  if (failure) { openAuth(); showAuthMessage(failure, "error"); }
+  else if (user) resumeIntent();
 })();
 
 /* ---------- Theme toggle (paper / after hours) ----------

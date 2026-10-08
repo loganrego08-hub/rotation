@@ -26,6 +26,18 @@
 })();
 </script>
 <script>
+/* If sign-in with Google, Apple or an email link failed, the site is opened with the reason in the URL (#error=... or ?error=...).
+   Keep it for app.js, then tidy the address bar. A successful return carries #access_token=..., which the sign-in library reads itself. */
+(function () {
+  var q = new URLSearchParams(location.search), h = new URLSearchParams(location.hash.replace(/^#/, ""));
+  var get = function (k) { return h.get(k) || q.get(k); };
+  if (get("error") || get("error_code") || get("error_description")) {
+    window.__authReturn = { error: get("error"), code: get("error_code"), description: get("error_description") };
+    if (location.hash.indexOf("#error") === 0) history.replaceState(null, "", location.pathname);
+  }
+})();
+</script>
+<script>
 /* Theme first, before anything paints: the saved choice, else the system setting. The footer toggle (app.js) changes it. */
 (function () {
   var t = null;
@@ -70,7 +82,13 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
       </button>
     </div>
-    <p class="text-2">Your scores save to your account and count toward each album's community average.</p>
+    <p class="alert alert--info" id="authWhy" role="status" hidden></p>
+    <p class="text-2" id="authIntro">Your scores save to your account and count toward each album's community average.</p>
+    <div class="auth-providers" id="authProviders">
+      <button type="button" class="btn btn--block" id="authGoogle">Continue with Google</button>
+      <button type="button" class="btn btn--block" id="authApple">Continue with Apple</button>
+    </div>
+    <p class="auth-or t-label" id="authOr"><span>or with your email</span></p>
     <label class="field" id="authEmailField">
       <span class="field__label">Email</span>
       <input id="authEmail" class="input" type="email" required autocomplete="email">
@@ -87,6 +105,7 @@
     </label>
     <div><button type="button" class="btn btn--ghost btn--sm" id="authForgot">Forgot password?</button></div>
     <p id="authError" class="alert alert--error" role="alert" hidden></p>
+    <div class="auth-magic" id="authMagicRow"><button type="button" class="btn btn--block" id="authMagic">Email me a sign-in link</button><span class="field__hint">No password needed. The link works once.</span></div>
     <div class="dialog__actions">
       <button type="button" class="btn btn--ghost" id="authToggle">Create an account instead</button>
       <button type="submit" class="btn btn--primary" id="authSubmit">Sign in</button>
