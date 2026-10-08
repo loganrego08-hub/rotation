@@ -18,7 +18,14 @@
       "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
     }
   ],
+  "functions": {
+    "api/page.js": { "includeFiles": "index.html" }
+  },
   "rewrites": [
-    { "source": "/((?!api/|fonts/|tests/|.*\\.[A-Za-z0-9]+$).*)", "destination": "/index.html" }
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/album/:id", "destination": "/api/page?kind=album&id=:id" },
+    { "source": "/list/:id", "destination": "/api/page?kind=list&id=:id" },
+    { "source": "/artist/:id", "destination": "/api/page?kind=artist&id=:id" },
+    { "source": "/((?!api/|fonts/|tests/|.*\\.[A-Za-z0-9]+$).*)", "destination": "/api/page?path=/$1" }
   ]
 }

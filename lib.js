@@ -493,7 +493,72 @@
   const sameArtistName = (a, b) => { a = normText(a); b = normText(b); return a.length >= 2 && b.length >= 2 && (a === b || (a.length >= 4 && b.includes(a)) || (b.length >= 4 && a.includes(b))); };
   const sameTitleName = (a, b) => { a = stripBrackets(a); b = stripBrackets(b); if (!a || !b) return false; if (a === b) return true; const [s, l] = a.length <= b.length ? [a, b] : [b, a]; return s.length >= 6 && l.startsWith(s) && s.length / l.length >= 0.8; };   // 0.8: "Swimming" must not match "Swimming Pool"
 
-  root.RotationLib = { STREAMING_SERVICES, streamingService, streamingSearchUrl, listenQuery, streamingFromUrl, sameArtistName, sameTitleName, stripBrackets, tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
+  /* ---------- Share previews (Open Graph / Twitter) ----------
+     api/page.js looks the page up, builds a meta object with these helpers and injects it into index.html, so crawlers that don't run JavaScript
+     (link unfurlers, search engines) see real titles, descriptions and cover art. Nothing is invented: a score appears only when there are ratings. */
+  const SITE = "Rotation";
+  const SITE_DESC = "Score albums out of 10, star standout tracks, keep lists, and see where everyone else lands.";
+  const plainText = (s) => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+  const clip = (s, n) => (s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, "") + "…" : s);
+  // row: { title, artist, cover_url?, release_date?, rating_count?, avg_score? }
+  function albumMeta(row, { origin, id }) {
+    const year = String(row.release_date || "").slice(0, 4), n = Number(row.rating_count) || 0;
+    const score = n > 0 && row.avg_score != null ? `Community score: ${row.avg_score}/10 from ${n} ${n === 1 ? "rating" : "ratings"}.` : "Not rated yet. Be the first to score it.";
+    return { title: `${plainText(row.title)} by ${plainText(row.artist)} · ${SITE}`, description: clip(`${plainText(row.artist)}${/^\d{4}$/.test(year) ? ` · ${year}` : ""}. ${score}`, 200),
+      url: `${origin}/album/${id}`, image: row.cover_url || `https://coverartarchive.org/release-group/${id}/front-500`, imageAlt: `${plainText(row.title)} by ${plainText(row.artist)}`, type: "music.album" };
+  }
+  // row: { title, description?, username?, item_count?, covers? } from the public_lists view (private lists never appear there)
+  function listMeta(row, { origin, id }) {
+    const n = Number(row.item_count) || 0, by = row.username ? ` by @${row.username}` : "";
+    return { title: `${plainText(row.title)} · a list on ${SITE}`, description: clip(plainText(row.description) || `${n} ${n === 1 ? "album" : "albums"}${by}. Ranked and shared on ${SITE}.`, 200),
+      url: `${origin}/list/${id}`, image: (row.covers || []).find(Boolean) || null, imageAlt: `Cover of ${plainText(row.title)}`, type: "website" };
+  }
+  function artistMeta(row, { origin, id }) {
+    const bits = [row.type, row.area].filter(Boolean).join(", ");
+    return { title: `${plainText(row.name)} · ${SITE}`, description: clip(`${plainText(row.name)}${bits ? ` (${bits})` : ""}. Albums, scores and what the community thinks on ${SITE}.`, 200), url: `${origin}/artist/${id}`, image: null, type: "profile" };
+  }
+  // Static pages: a sensible title and description each; pages that are personal are marked noindex
+  const ROUTE_META = [
+    [/^\/$/, { title: `${SITE}: rate every album out of 10`, description: SITE_DESC }],
+    [/^\/explore/, { title: `Explore · ${SITE}`, description: "Browse albums by genre and decade, from the charts and from what people on Rotation are rating." }],
+    [/^\/genre\//, { title: `Genre charts · ${SITE}`, description: "This week's Billboard album chart for the genre, with scores from the Rotation community." }],
+    [/^\/decade\//, { title: `Albums by decade · ${SITE}`, description: "Landmark albums from the decade, plus what people on Rotation have rated." }],
+    [/^\/lists/, { title: `Lists · ${SITE}`, description: "Charts, the community's top-rated albums and public lists from people on Rotation." }],
+    [/^\/search/, { title: `Search · ${SITE}`, description: "Find any album or artist, then give it a score." }],
+    [/^\/browse/, { title: `Browse with filters · ${SITE}`, description: "Filter albums by genre, decade, average score and number of ratings." }],
+    [/^\/stats\/sample/, { title: `Sample stats · ${SITE}`, description: "A made-up example of the listening stats page, clearly labeled as sample data." }],
+    [/^\/(me|settings|notifications|feed|stats|year)/, { title: `${SITE}`, description: SITE_DESC, noindex: true }],
+  ];
+  function routeMeta(pathname, { origin }) {
+    const hit = ROUTE_META.find(([re]) => re.test(pathname));
+    return { ...(hit ? hit[1] : { title: `${SITE}`, description: SITE_DESC }), url: `${origin}${pathname === "/" ? "/" : pathname.replace(/\/+$/, "")}`, image: null, type: "website" };
+  }
+  const attr = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // Replaces the shell's own title and share tags with the page's, once each
+  function injectMeta(html, m) {
+    const image = m.image || null;
+    const tags = [
+      `<title>${attr(m.title)}</title>`,
+      `<meta name="description" content="${attr(m.description)}">`,
+      m.noindex ? '<meta name="robots" content="noindex, follow">' : '<meta name="robots" content="index, follow">',
+      `<link rel="canonical" href="${attr(m.url)}">`,
+      `<meta property="og:site_name" content="${SITE}">`,
+      `<meta property="og:type" content="${attr(m.type || "website")}">`,
+      `<meta property="og:title" content="${attr(m.title)}">`,
+      `<meta property="og:description" content="${attr(m.description)}">`,
+      `<meta property="og:url" content="${attr(m.url)}">`,
+      image ? `<meta property="og:image" content="${attr(image)}">` : "",
+      image && m.imageAlt ? `<meta property="og:image:alt" content="${attr(m.imageAlt)}">` : "",
+      `<meta name="twitter:card" content="summary">`,
+      `<meta name="twitter:title" content="${attr(m.title)}">`,
+      `<meta name="twitter:description" content="${attr(m.description)}">`,
+      image ? `<meta name="twitter:image" content="${attr(image)}">` : "",
+    ].filter(Boolean);
+    const stripped = html.replace(/<title>[\s\S]*?<\/title>\s*/gi, "").replace(/<meta\s+(?:name|property)="(?:description|robots|og:[^"]*|twitter:[^"]*)"[^>]*>\s*/gi, "").replace(/<link\s+rel="canonical"[^>]*>\s*/gi, "");
+    return stripped.replace(/<\/head>/i, `${tags.join("\n")}\n</head>`);
+  }
+
+  root.RotationLib = { albumMeta, listMeta, artistMeta, routeMeta, injectMeta, STREAMING_SERVICES, streamingService, streamingSearchUrl, listenQuery, streamingFromUrl, sameArtistName, sameTitleName, stripBrackets, tintFromPixels, rgbToHsl, TINT_CLAMP, scoreTone, scoreVar, toneAttr, SEARCH_WEIGHTS, normText, baseTitle, textScore, matchText, kindOf, candidateOf, scoreCandidate, rankAlbums, rankArtists, artistCard, splitTop, didYouMean, searchPlan, isWeakPool, needsFuzzy, editDistance, lucene, albumQuery, typeLabel, spreadNote, randomPageOffset, MB_WINDOW, mean, round1, norm, compareTaste, genreOverlap, genreCounts, recapOf, yearsWithRatings, heatmapOf, heatLevel, statsOf, mergeRecs, tasteProfile, MIN_SHARED_FOR_SCORE, MIN_GENRE_ALBUMS };
 })(typeof window !== "undefined" ? window : globalThis);
 // api/search.js shares the same ranking code as the browser
 if (typeof module !== "undefined" && module.exports) module.exports = globalThis.RotationLib;

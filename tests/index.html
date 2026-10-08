@@ -175,6 +175,37 @@ test("tasteProfile: strict by default, relaxable for people with few ratings", (
   const loose = L.tasteProfile(rows, { genreMin: 1, artistAvg: 7 });
   eq(loose.genres.map((g) => g.name), ["rock", "jazz"], "a single album at 7+ counts when relaxed, ranked by score"); eq(loose.artists.map((a) => a.name), ["X", "Y"], "artists averaging 7+; the 5 never counts");
 });
+/* ---- share previews ---- */
+const SHELL = '<!doctype html><html><head><meta charset="utf-8"><title>Rotation</title>\n<meta name="description" content="old">\n<meta property="og:title" content="old">\n<meta property="og:image" content="old.png">\n<meta name="twitter:card" content="summary">\n<link rel="canonical" href="https://old/">\n</head><body><main id="view"></main></body></html>';
+const count = (s, re) => (s.match(re) || []).length;
+test("albumMeta: title, score from real ratings, cover art, absolute URLs", () => {
+  const m = L.albumMeta({ title: "Nevermind", artist: "Nirvana", release_date: "1991-09-24", rating_count: 12, avg_score: 8.4, cover_url: "https://x/c.jpg" }, { origin: "https://rotation-ten.vercel.app", id: "abc" });
+  eq(m.title, "Nevermind by Nirvana · Rotation"); ok(m.description.includes("Nirvana · 1991") && m.description.includes("Community score: 8.4/10 from 12 ratings."), m.description);
+  eq(m.url, "https://rotation-ten.vercel.app/album/abc"); eq(m.image, "https://x/c.jpg");
+  ok(L.albumMeta({ title: "T", artist: "A", rating_count: 1, avg_score: 7 }, { origin: "https://o", id: "i" }).description.includes("from 1 rating."), "singular");
+  const none = L.albumMeta({ title: "T", artist: "A", rating_count: 0, avg_score: null }, { origin: "https://o", id: "i" });
+  ok(!/\d\/10/.test(none.description) && none.description.includes("Not rated yet"), "no score is invented when there are no ratings");
+  eq(none.image, "https://coverartarchive.org/release-group/i/front-500", "falls back to the Cover Art Archive");
+});
+test("listMeta and artistMeta", () => {
+  const m = L.listMeta({ title: "Road trip", description: "", username: "logan", item_count: 12, covers: [null, "https://c/1.jpg"] }, { origin: "https://o", id: "u" });
+  eq(m.title, "Road trip · a list on Rotation"); ok(m.description.includes("12 albums by @logan"), m.description); eq(m.image, "https://c/1.jpg"); eq(m.url, "https://o/list/u");
+  ok(L.artistMeta({ name: "Nirvana", type: "Group", area: "United States" }, { origin: "https://o", id: "a" }).description.includes("Nirvana (Group, United States)"));
+});
+test("routeMeta: defaults per page type, canonical without query or trailing slash, personal pages are noindex", () => {
+  eq(L.routeMeta("/explore", { origin: "https://o" }).url, "https://o/explore"); eq(L.routeMeta("/lists/", { origin: "https://o" }).url, "https://o/lists"); eq(L.routeMeta("/", { origin: "https://o" }).url, "https://o/");
+  ok(L.routeMeta("/me", { origin: "https://o" }).noindex && L.routeMeta("/settings", { origin: "https://o" }).noindex && !L.routeMeta("/explore", { origin: "https://o" }).noindex);
+  ok(L.routeMeta("/nope", { origin: "https://o" }).title === "Rotation" && L.routeMeta("/nope", { origin: "https://o" }).description.length > 20, "unknown paths still get defaults");
+});
+test("injectMeta: replaces the shell's tags once, escapes values, keeps the rest", () => {
+  const out = L.injectMeta(SHELL, { title: 'Rise "Up" <b> by A', description: "d & e", url: "https://o/album/1", image: "https://o/i.jpg", imageAlt: "alt", type: "music.album" });
+  eq(count(out, /<title>/g), 1); eq(count(out, /rel="canonical"/g), 1); eq(count(out, /property="og:title"/g), 1); eq(count(out, /property="og:image"/g), 1); eq(count(out, /name="twitter:card"/g), 1); eq(count(out, /name="description"/g), 1);
+  ok(!out.includes('content="old"') && !out.includes("old.png") && !out.includes("https://old/"), "old values are gone");
+  ok(out.includes("<title>Rise &quot;Up&quot; &lt;b&gt; by A</title>") && out.includes('content="d &amp; e"'), "escaped");
+  ok(out.includes('<main id="view"></main>') && out.includes('<meta charset="utf-8">'), "the rest of the shell is untouched");
+  ok(out.includes('name="robots" content="index, follow"') && L.injectMeta(SHELL, { title: "t", description: "d", url: "u", noindex: true }).includes("noindex"));
+  ok(!L.injectMeta(SHELL, { title: "t", description: "d", url: "u" }).includes("og:image"), "no image tag when there is no image");
+});
 /* ---- streaming services ---- */
 test("streaming: every service has a working search URL for albums and tracks", () => {
   eq(L.STREAMING_SERVICES.map((s) => s.id), ["spotify", "apple", "youtube", "tidal", "amazon", "deezer", "pandora", "soundcloud", "bandcamp", "qobuz"]);
